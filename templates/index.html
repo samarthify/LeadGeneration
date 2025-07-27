@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lead Generation Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        input, textarea {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 25%, #0f3460 50%, #533483 75%, #7209b7 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Animated background elements */
+        body::before,
+        body::after {
+            content: '';
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            animation: float 6s ease-in-out infinite;
+        }
+
+        body::before {
+            top: 10%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        body::after {
+            bottom: 10%;
+            right: 10%;
+            animation-delay: 3s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: none;
+            box-shadow: none;
+            padding: 40px 60px;
+            width: 100%;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            padding-top: 20px;
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            letter-spacing: -0.02em;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1.1rem;
+            font-weight: 400;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .form-group {
+            margin-bottom: 40px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 12px;
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group input {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            display: block;
+            padding: 20px 24px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            color: white;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                0 0 0 4px rgba(255, 255, 255, 0.08);
+            transform: translateY(-2px);
+            font-size: 1.1rem;
+        }
+
+        .input-group input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+            text-align: center;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.08) 100%);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 20px 40px;
+            border-radius: 16px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto 30px auto;
+            display: block;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                0 0 0 1px rgba(255, 255, 255, 0.2);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.15) 100%);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 50px 0;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading p {
+            color: white;
+            font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .results {
+            margin-top: 50px;
+            display: none;
+            max-width: 1000px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .result-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 24px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .result-title {
+            font-weight: 600;
+            color: white;
+            font-size: 1.3rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .result-status {
+            padding: 8px 16px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .status-success {
+            background: rgba(72, 187, 120, 0.2);
+            color: #9ae6b4;
+            border-color: rgba(72, 187, 120, 0.3);
+        }
+
+        .status-warning {
+            background: rgba(237, 137, 54, 0.2);
+            color: #fbd38d;
+            border-color: rgba(237, 137, 54, 0.3);
+        }
+
+        .status-error {
+            background: rgba(229, 62, 62, 0.2);
+            color: #feb2b2;
+            border-color: rgba(229, 62, 62, 0.3);
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, rgba(72, 187, 120, 0.2) 0%, rgba(72, 187, 120, 0.1) 100%);
+            backdrop-filter: blur(10px);
+            color: #9ae6b4;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            display: inline-block;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(72, 187, 120, 0.3);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15);
+            background: linear-gradient(135deg, rgba(72, 187, 120, 0.3) 0%, rgba(72, 187, 120, 0.2) 100%);
+        }
+
+        .ai-response {
+            margin-top: 25px;
+        }
+
+        .ai-response h4 {
+            color: white;
+            margin-bottom: 15px;
+            font-weight: 600;
+            font-size: 1.2rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .ai-response p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.95rem;
+            margin-bottom: 15px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .ai-response textarea {
+            width: 100%;
+            min-height: 250px;
+            padding: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            color: #e2e8f0;
+            resize: vertical;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .ai-response textarea:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.4);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .copy-btn {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(102, 126, 234, 0.08) 100%);
+            backdrop-filter: blur(10px);
+            color: #a3bffa;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .copy-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25);
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(102, 126, 234, 0.15) 100%);
+        }
+
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            background: rgba(229, 62, 62, 0.1);
+            backdrop-filter: blur(10px);
+            color: #feb2b2;
+            padding: 20px;
+            border-radius: 16px;
+            margin-top: 20px;
+            border: 1px solid rgba(229, 62, 62, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .warning-message {
+            background: rgba(237, 137, 54, 0.1);
+            backdrop-filter: blur(10px);
+            color: #fbd38d;
+            padding: 20px;
+            border-radius: 16px;
+            margin-top: 20px;
+            border: 1px solid rgba(237, 137, 54, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-card p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1rem;
+            margin-bottom: 15px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Full page layout for desktop */
+        @media (min-width: 1024px) {
+            .container {
+                padding: 60px 80px;
+            }
+            
+            .header h1 {
+                font-size: 3.2rem;
+            }
+            
+            .header p {
+                font-size: 1.2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 2.4rem;
+            }
+            
+            .header p {
+                font-size: 1rem;
+            }
+
+            .result-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .input-group input {
+                max-width: 100%;
+                font-size: 16px;
+                padding: 18px 24px;
+            }
+            
+            .btn {
+                max-width: 100%;
+                font-size: 1.1rem;
+                padding: 18px 32px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Lead Generation Tool</h1>
+            <p>Generate employee contact information for any company</p>
+        </div>
+
+        <form id="search-form">
+            <div class="form-group">
+                <label for="company">Company Name</label>
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        id="company" 
+                        placeholder="Enter company name (e.g., Sony, Fujitsu, Toyota)" 
+                        required 
+                    />
+                </div>
+            </div>
+            <button type="submit" class="btn" id="submit-btn">
+                Generate Employee Data
+            </button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Searching for employee information...</p>
+        </div>
+
+        <div class="results" id="results"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('search-form');
+        const companyInput = document.getElementById('company');
+        const submitBtn = document.getElementById('submit-btn');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+
+        // Prevent zoom on input focus
+        companyInput.addEventListener('focus', function() {
+            document.body.style.fontSize = '16px';
+        });
+
+        companyInput.addEventListener('blur', function() {
+            document.body.style.fontSize = '';
+        });
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const company = companyInput.value.trim();
+            
+            if (!company) {
+                alert('Please enter a company name.');
+                return;
+            }
+
+            // Show loading state
+            loading.style.display = 'block';
+            results.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ company_name: company })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResults(data, company);
+                } else {
+                    // Check if we have AI response even in error case
+                    const aiResponse = data.ai_response || data.raw_output || null;
+                    displayError(data.error || 'Failed to generate employee data.', aiResponse);
+                }
+            } catch (error) {
+                displayError(`Network error: ${error.message}`);
+            } finally {
+                loading.style.display = 'none';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Generate Employee Data';
+            }
+        };
+
+        function displayResults(data, company) {
+            results.style.display = 'block';
+            
+            let statusClass = 'status-success';
+            let statusText = 'Success';
+            
+            if (!data.parsed_successfully) {
+                statusClass = 'status-warning';
+                statusText = 'Parsing Failed';
+            }
+
+            let html = `
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="result-title">Results for ${company}</div>
+                        <div class="result-status ${statusClass}">${statusText}</div>
+                    </div>
+            `;
+
+            if (data.parsed_successfully && data.rows_found > 0) {
+                html += `
+                    <p><strong>${data.rows_found}</strong> employees found and parsed successfully.</p>
+                    <a href="${data.download_url}" class="download-btn" download>
+                        📥 Download CSV File
+                    </a>
+                `;
+            } else if (data.parsed_successfully && data.rows_found === 0) {
+                html += `
+                    <div class="warning-message">
+                        <strong>No employee data found</strong><br>
+                        The AI search completed but no employee information was found for this company.
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="warning-message">
+                        <strong>Parsing failed</strong><br>
+                        The AI found some data but couldn't parse it into the expected format. 
+                        You can view the raw AI response below and manually extract the information.
+                        ${data.warning ? '<br><br>' + data.warning : ''}
+                    </div>
+                `;
+            }
+
+            // Always show AI response prominently
+            html += `
+                <div class="ai-response">
+                    <h4>📋 Raw AI Response (Always Available)</h4>
+                    <p>This is the complete AI output. You can copy and paste this data for manual processing if automatic parsing fails.</p>
+                    <button class="copy-btn" onclick="copyToClipboard('ai-response-text')">
+                        📋 Copy AI Response to Clipboard
+                    </button>
+                    <textarea id="ai-response-text" readonly>${data.ai_response}</textarea>
+                </div>
+            `;
+
+            html += '</div>';
+            results.innerHTML = html;
+        }
+
+        function displayError(message, aiResponse = null) {
+            results.style.display = 'block';
+            let html = `
+                <div class="error-message">
+                    <strong>Error:</strong> ${message}
+                </div>
+            `;
+            
+            // If we have AI response, show it even on error
+            if (aiResponse) {
+                html += `
+                    <div class="ai-response">
+                        <h4>📋 Raw AI Response (Available despite error)</h4>
+                        <p>Even though an error occurred, the AI response is available below for manual extraction.</p>
+                        <button class="copy-btn" onclick="copyToClipboard('error-ai-response-text')">
+                            📋 Copy AI Response to Clipboard
+                        </button>
+                        <textarea id="error-ai-response-text" readonly>${aiResponse}</textarea>
+                    </div>
+                `;
+            }
+            
+            results.innerHTML = html;
+        }
+
+        function copyToClipboard(elementId) {
+            const textarea = document.getElementById(elementId);
+            textarea.select();
+            textarea.setSelectionRange(0, 99999); // For mobile devices
+            
+            try {
+                document.execCommand('copy');
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                btn.style.background = 'linear-gradient(135deg, rgba(72, 187, 120, 0.3) 0%, rgba(72, 187, 120, 0.2) 100%)';
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = 'linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(102, 126, 234, 0.1) 100%)';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy to clipboard. Please select and copy manually.');
+            }
+        }
+    </script>
+</body>
+</html> 
