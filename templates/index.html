@@ -436,14 +436,52 @@
                 padding: 18px 32px;
             }
         }
+        .batch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 22px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .batch-grid .result-card {
+            margin-bottom: 0;
+            min-width: 0;
+            padding: 18px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.13);
+        }
+        @media (max-width: 900px) {
+            .batch-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 600px) {
+            .batch-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="toggle-bar" style="display: flex; justify-content: center; align-items: center; margin-bottom: 30px; gap: 16px;">
+            <button id="toggle-single" class="toggle-btn active" style="padding: 12px 28px; border-radius: 20px; border: none; font-weight: 600; font-size: 1.1rem; cursor: pointer; background: linear-gradient(135deg, #7209b7 0%, #0f3460 100%); color: #fff; transition: background 0.2s;">Single Company</button>
+            <button id="toggle-batch" class="toggle-btn" style="padding: 12px 28px; border-radius: 20px; border: none; font-weight: 600; font-size: 1.1rem; cursor: pointer; background: rgba(255,255,255,0.12); color: #fff; transition: background 0.2s;">Batch Upload</button>
+        </div>
         <div class="header">
             <h1>Lead Generation Tool</h1>
-            <p>Generate employee contact information for any company</p>
+            <p>Generate comprehensive employee contact information for any company</p>
         </div>
+
+        <form id="csv-upload-form" enctype="multipart/form-data" style="margin-bottom: 30px; display: none;">
+            <div class="form-group">
+                <label for="csv-file">Batch Upload (CSV of Company Names)</label>
+                <div class="input-group">
+                    <input type="file" id="csv-file" accept=".csv" />
+                </div>
+            </div>
+            <button type="submit" class="btn" id="csv-upload-btn">Upload & Generate for All Companies</button>
+        </form>
 
         <form id="search-form">
             <div class="form-group">
@@ -452,22 +490,23 @@
                     <input 
                         type="text" 
                         id="company" 
-                        placeholder="Enter company name (e.g., Sony, Fujitsu, Toyota)" 
+                        placeholder="Enter company name (e.g., Sony, Fujitsu, Toyota) - Will find executives and general employees" 
                         required 
                     />
                 </div>
             </div>
             <button type="submit" class="btn" id="submit-btn">
-                Generate Employee Data
+                Generate Comprehensive Employee Data
             </button>
         </form>
 
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p>Searching for employee information...</p>
+            <p>Searching for executives and general employees...</p>
         </div>
 
         <div class="results" id="results"></div>
+        <div class="results batch-grid" id="batch-results" style="display:none; max-height: 600px; overflow-y: auto; margin-top: 40px;"></div>
     </div>
 
     <script>
@@ -476,6 +515,39 @@
         const submitBtn = document.getElementById('submit-btn');
         const loading = document.getElementById('loading');
         const results = document.getElementById('results');
+        const csvForm = document.getElementById('csv-upload-form');
+        const csvFileInput = document.getElementById('csv-file');
+        const csvUploadBtn = document.getElementById('csv-upload-btn');
+        const batchResults = document.getElementById('batch-results');
+
+        // Toggle logic
+        const toggleSingle = document.getElementById('toggle-single');
+        const toggleBatch = document.getElementById('toggle-batch');
+        const singleForm = document.getElementById('search-form');
+        const batchForm = document.getElementById('csv-upload-form');
+        toggleSingle.onclick = function() {
+            toggleSingle.classList.add('active');
+            toggleBatch.classList.remove('active');
+            singleForm.style.display = '';
+            results.style.display = '';
+            batchForm.style.display = 'none';
+            batchResults.style.display = 'none';
+            toggleSingle.style.background = 'linear-gradient(135deg, #7209b7 0%, #0f3460 100%)';
+            toggleBatch.style.background = 'rgba(255,255,255,0.12)';
+        };
+        toggleBatch.onclick = function() {
+            toggleBatch.classList.add('active');
+            toggleSingle.classList.remove('active');
+            singleForm.style.display = 'none';
+            results.style.display = 'none';
+            batchForm.style.display = '';
+            // batchResults will be shown after upload
+            toggleBatch.style.background = 'linear-gradient(135deg, #7209b7 0%, #0f3460 100%)';
+            toggleSingle.style.background = 'rgba(255,255,255,0.12)';
+        };
+        // Default to single company mode
+        singleForm.style.display = '';
+        batchForm.style.display = 'none';
 
         // Prevent zoom on input focus
         companyInput.addEventListener('focus', function() {
@@ -522,7 +594,78 @@
             } finally {
                 loading.style.display = 'none';
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Generate Employee Data';
+                submitBtn.textContent = 'Generate Comprehensive Employee Data';
+            }
+        };
+
+        csvForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const file = csvFileInput.files[0];
+            if (!file) {
+                alert('Please select a CSV file.');
+                return;
+            }
+            loading.style.display = 'block';
+            results.style.display = 'none';
+            batchResults.style.display = 'none';
+            csvUploadBtn.disabled = true;
+            csvUploadBtn.textContent = 'Processing...';
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                // Clear previous results and show batch results area
+                batchResults.style.display = 'block';
+                batchResults.innerHTML = '';
+                
+                // Upload file and handle streaming response
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    displayError(errorData.error || 'Failed to process CSV batch.');
+                    return;
+                }
+                
+                // Handle streaming response
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.status === 'complete') {
+                                    loading.style.display = 'none';
+                                    csvUploadBtn.disabled = false;
+                                    csvUploadBtn.textContent = 'Upload & Generate for All Companies';
+                                    return;
+                                }
+                                
+                                // Display individual company result
+                                displaySingleBatchResult(data);
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                }
+                 
+            } catch (error) {
+                displayError(`Network error: ${error.message}`);
+                loading.style.display = 'none';
+                csvUploadBtn.disabled = false;
+                csvUploadBtn.textContent = 'Upload & Generate for All Companies';
             }
         };
 
@@ -586,6 +729,72 @@
             results.innerHTML = html;
         }
 
+        function displayBatchResults(resultsArr) {
+            batchResults.style.display = 'block';
+            results.style.display = 'none';
+            let html = '';
+            for (const data of resultsArr) {
+                let statusClass = 'status-success';
+                let statusText = 'Success';
+                if (data.error) {
+                    statusClass = 'status-error';
+                    statusText = 'Error';
+                } else if (!data.parsed_successfully) {
+                    statusClass = 'status-warning';
+                    statusText = 'Parsing Failed';
+                }
+                html += `
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="result-title">Results for ${data.company || 'Unknown'}</div>
+                        <div class="result-status ${statusClass}">${statusText}</div>
+                    </div>
+                `;
+                if (data.error) {
+                    html += `<div class="error-message"><strong>Error:</strong> ${data.error}</div>`;
+                } else if (data.parsed_successfully && data.rows_found > 0) {
+                    html += `
+                        <p><strong>${data.rows_found}</strong> employees found and parsed successfully.</p>
+                        <a href="${data.download_url}" class="download-btn" download>
+                            📥 Download CSV File
+                        </a>
+                    `;
+                } else if (data.parsed_successfully && data.rows_found === 0) {
+                    html += `
+                        <div class="warning-message">
+                            <strong>No employee data found</strong><br>
+                            The AI search completed but no employee information was found for this company.
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="warning-message">
+                            <strong>Parsing failed</strong><br>
+                            The AI found some data but couldn't parse it into the expected format. 
+                            You can view the raw AI response below and manually extract the information.
+                            ${data.warning ? '<br><br>' + data.warning : ''}
+                        </div>
+                    `;
+                }
+                // Always show AI response if available
+                if (data.ai_response) {
+                    const taId = `ai-response-text-${data.company.replace(/[^a-zA-Z0-9]/g, '')}`;
+                    html += `
+                        <div class="ai-response">
+                            <h4>📋 Raw AI Response (Always Available)</h4>
+                            <p>This is the complete AI output. You can copy and paste this data for manual processing if automatic parsing fails.</p>
+                            <button class="copy-btn" onclick="copyToClipboard('${taId}')">
+                                📋 Copy AI Response to Clipboard
+                            </button>
+                            <textarea id="${taId}" readonly>${data.ai_response}</textarea>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+            }
+            batchResults.innerHTML = html;
+        }
+
         function displayError(message, aiResponse = null) {
             results.style.display = 'block';
             let html = `
@@ -631,6 +840,72 @@
                 console.error('Failed to copy: ', err);
                 alert('Failed to copy to clipboard. Please select and copy manually.');
             }
+        }
+
+        function displaySingleBatchResult(data) {
+            let statusClass = 'status-success';
+            let statusText = 'Success';
+            if (data.error) {
+                statusClass = 'status-error';
+                statusText = 'Error';
+            } else if (!data.parsed_successfully) {
+                statusClass = 'status-warning';
+                statusText = 'Parsing Failed';
+            }
+            
+            let html = `
+            <div class="result-card">
+                <div class="result-header">
+                    <div class="result-title">Results for ${data.company || 'Unknown'}</div>
+                    <div class="result-status ${statusClass}">${statusText}</div>
+                </div>
+            `;
+            
+            if (data.error) {
+                html += `<div class="error-message"><strong>Error:</strong> ${data.error}</div>`;
+            } else if (data.parsed_successfully && data.rows_found > 0) {
+                html += `
+                    <p><strong>${data.rows_found}</strong> employees found and parsed successfully.</p>
+                    <a href="${data.download_url}" class="download-btn" download>
+                        📥 Download CSV File
+                    </a>
+                `;
+            } else if (data.parsed_successfully && data.rows_found === 0) {
+                html += `
+                    <div class="warning-message">
+                        <strong>No employee data found</strong><br>
+                        The AI search completed but no employee information was found for this company.
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="warning-message">
+                        <strong>Parsing failed</strong><br>
+                        The AI found some data but couldn't parse it into the expected format. 
+                        You can view the raw AI response below and manually extract the information.
+                        ${data.warning ? '<br><br>' + data.warning : ''}
+                    </div>
+                `;
+            }
+            
+            // Always show AI response if available
+            if (data.ai_response) {
+                const taId = `ai-response-text-${data.company.replace(/[^a-zA-Z0-9]/g, '')}`;
+                html += `
+                    <div class="ai-response">
+                        <h4>📋 Raw AI Response (Always Available)</h4>
+                        <p>This is the complete AI output. You can copy and paste this data for manual processing if automatic parsing fails.</p>
+                        <button class="copy-btn" onclick="copyToClipboard('${taId}')">
+                            📋 Copy AI Response to Clipboard
+                        </button>
+                        <textarea id="${taId}" readonly>${data.ai_response}</textarea>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            
+            // Append the new result to the batch results area
+            batchResults.insertAdjacentHTML('beforeend', html);
         }
     </script>
 </body>

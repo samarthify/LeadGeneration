@@ -52,3 +52,4 @@ generated/
 
 # Logs
 *.log 
+.vercel

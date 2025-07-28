@@ -4,10 +4,11 @@ import csv
 import uuid
 import re
 import pandas as pd
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, Response
 from dotenv import load_dotenv
 from tavily import TavilyClient
 import openai
+import json
 
 # Load environment variables
 load_dotenv()
@@ -29,11 +30,16 @@ else:
     GENERATED_DIR = 'generated'
     os.makedirs(GENERATED_DIR, exist_ok=True)
 
-# Strengthened prompt
+# Enhanced prompt to include both executives and general employees
 STRICT_CSV_PROMPT = (
     "Find and list employees for the company '{company}'. "
-    "Focus on executives, VPs, directors, and regional heads. "
-    "Search official company websites, press releases, reputable news, and professional networking sites. "
+    "Include a comprehensive mix of employees: "
+    "- Executives (CEO, CFO, CTO, etc.) "
+    "- Senior management (VPs, Directors, Heads of departments) "
+    "- Middle management (Managers, Team Leads, Supervisors) "
+    "- General employees (Engineers, Analysts, Specialists, Coordinators, etc.) "
+    "- Support staff (HR, IT, Marketing, Sales, Operations, etc.) "
+    "Search official company websites, press releases, reputable news, professional networking sites, and company directories. "
     "List as many relevant employees as you can find, including those from international offices or subsidiaries. "
     "For each employee, extract department and precise job title if available. "
     "Provide names in both native script (if found) and Roman alphabet. "
@@ -48,6 +54,7 @@ STRICT_CSV_PROMPT = (
     "4. Do not include duplicate entries. "
     "5. Do not truncate or cut off any entries. "
     "6. Ensure the CSV is properly formatted and complete. "
+    "7. Prioritize finding a diverse range of employees across different levels and departments. "
     "**Output ONLY the strict CSV data, including the header row, inside a single markdown code block (```csv ... ```), with NO extra text, explanation, or commentary.** "
     "If no data is found, output only the header row in the code block."
 )
@@ -155,14 +162,31 @@ def generate():
     if not company_name:
         return jsonify({'error': 'Company name is required.'}), 400
     try:
-        # Tavily search
-        query = f"{company_name} executive team site:{company_name}.co.jp"
-        tavily_res = tavily.search(
-            query=query,
-            search_depth="basic",
-            max_results=5
-        )
-        urls = [item['url'] for item in tavily_res.get('results', [])][:5]
+        # Tavily search - Enhanced to find both executives and general employees
+        queries = [
+            f"{company_name} executive team leadership site:{company_name}.co.jp",
+            f"{company_name} employees staff directory site:{company_name}.co.jp",
+            f"{company_name} team members about us site:{company_name}.co.jp",
+            f"{company_name} management team site:{company_name}.co.jp",
+            f"{company_name} company directory employees site:{company_name}.co.jp"
+        ]
+        
+        all_urls = []
+        for query in queries:
+            try:
+                tavily_res = tavily.search(
+                    query=query,
+                    search_depth="basic",
+                    max_results=3
+                )
+                urls = [item['url'] for item in tavily_res.get('results', [])]
+                all_urls.extend(urls)
+            except Exception as e:
+                print(f"Search query failed for '{query}': {e}")
+                continue
+        
+        # Remove duplicates and limit to top results
+        urls = list(dict.fromkeys(all_urls))[:8]  # Keep unique URLs, max 8
         if not urls:
             return jsonify({'error': 'No relevant pages found.'}), 404
         # OpenAI prompt
@@ -203,6 +227,92 @@ def generate():
             'ai_response': 'Error occurred before AI processing could complete.'
         }), 500
 
+@app.route('/upload', methods=['POST'], strict_slashes=False)
+def upload_csv():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request.'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file.'}), 400
+    try:
+        # Read CSV file into DataFrame
+        stream = io.StringIO(file.stream.read().decode('utf-8'))
+        reader = csv.reader(stream)
+        companies = [row[0].strip() for row in reader if row and row[0].strip()]
+        if not companies:
+            return jsonify({'error': 'No company names found in the CSV.'}), 400
+        if len(companies) > 50:
+            return jsonify({'error': 'CSV contains more than 50 companies.'}), 400
+        
+        # Store companies in session or temporary storage
+        session_id = str(uuid.uuid4())
+        # For simplicity, we'll process immediately and stream results
+        # In a production app, you'd store this in Redis or similar
+        
+        def generate():
+            for i, company_name in enumerate(companies):
+                try:
+                    # Tavily search - Enhanced to find both executives and general employees
+                    queries = [
+                        f"{company_name} executive team leadership site:{company_name}.co.jp",
+                        f"{company_name} employees staff directory site:{company_name}.co.jp",
+                        f"{company_name} team members about us site:{company_name}.co.jp",
+                        f"{company_name} management team site:{company_name}.co.jp",
+                        f"{company_name} company directory employees site:{company_name}.co.jp"
+                    ]
+                    all_urls = []
+                    for query in queries:
+                        try:
+                            tavily_res = tavily.search(
+                                query=query,
+                                search_depth="basic",
+                                max_results=3
+                            )
+                            urls = [item['url'] for item in tavily_res.get('results', [])]
+                            all_urls.extend(urls)
+                        except Exception as e:
+                            print(f"Search query failed for '{query}': {e}")
+                            continue
+                    urls = list(dict.fromkeys(all_urls))[:8]
+                    if not urls:
+                        result = {'company': company_name, 'error': 'No relevant pages found.'}
+                        yield f"data: {json.dumps(result)}\n\n"
+                        continue
+                    prompt = STRICT_CSV_PROMPT.format(company=company_name) + f"\nSources: {urls}"
+                    response = openai.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.2,
+                        max_tokens=1200
+                    )
+                    csv_content = response.choices[0].message.content.strip()
+                    df = parse_csv_from_ai_output(csv_content)
+                    result = {
+                        'company': company_name,
+                        'ai_response': csv_content,
+                        'parsed_successfully': not df.empty,
+                        'rows_found': len(df) if not df.empty else 0
+                    }
+                    if not df.empty:
+                        filename = f"{company_name}_{uuid.uuid4().hex[:8]}.csv"
+                        filepath = os.path.join(GENERATED_DIR, filename)
+                        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                        result['download_url'] = f'/download/{filename}'
+                    else:
+                        result['warning'] = 'Parsing failed but AI response is available below for manual extraction.'
+                    yield f"data: {json.dumps(result)}\n\n"
+                except Exception as e:
+                    result = {
+                        'company': company_name,
+                        'error': str(e),
+                        'ai_response': 'Error occurred before AI processing could complete.'
+                    }
+                    yield f"data: {json.dumps(result)}\n\n"
+            yield f"data: {json.dumps({'status': 'complete'})}\n\n"
+        
+        return Response(generate(), mimetype='text/event-stream')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/download/<filename>')
