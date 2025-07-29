@@ -112,37 +112,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 ### 2. Upload CSV File
 
-The application expects a CSV file with the following columns. You can use either English or Japanese column headers:
 
-**English Format:**
-| Column Name | Description | Required |
-|-------------|-------------|----------|
-| Company name | The company name to search for | Yes |
-| Department | Target department (optional) | No |
-| Job title | Target job title (optional) | No |
-| Last name | Contact's last name in kanji (optional) | No |
-| First name | Contact's first name in kanji (optional) | No |
-| Last name (lowercase Roman letters) | Romanized last name (optional) | No |
-| First name (lowercase Roman letters) | Romanized first name (optional) | No |
-| Domain likely to be used in email addresses | Company domain | Yes |
-
-**Japanese Format (日本語形式):**
-| Column Name (Japanese) | Description | Required |
-|----------------------|-------------|----------|
-| 会社名 | The company name to search for | Yes |
-| 部署 | Target department (optional) | No |
-| 役職 | Target job title (optional) | No |
-| 姓 | Contact's last name in kanji (optional) | No |
-| 名 | Contact's first name in kanji (optional) | No |
-| 姓（小文字ローマ字） | Romanized last name (optional) | No |
-| 名（小文字ローマ字） | Romanized first name (optional) | No |
-| メールアドレスに使用される可能性が高いドメイン | Company domain | Yes |
-
-**Important Notes:**
-- The application supports both English and Japanese column headers
-- Japanese names (姓/名) should be in kanji format
-- Romanized names (姓（小文字ローマ字）/名（小文字ローマ字）) should be in lowercase Roman letters
-- The domain column is required for email generation
 
 ### 3. Processing
 
