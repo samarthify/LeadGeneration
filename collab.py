@@ -56,8 +56,8 @@ class Config:
         "Provide names in both native script (if found) and Roman alphabet. "
         "After collecting comprehensive data from multiple searches, carefully deduplicate entries based on their Romanized names (lowercase). "
         "Determine the most likely primary email domain for employees of this company. If regional domains exist (e.g., @us.company.com, @uk.company.com), prioritize the global domain if unsure, or list regional domains if clearly associated with a specific employee location found in the data. "
-        "Finally, format the complete, deduplicated list as a **strict CSV** table with the following columns, ensuring data accuracy and consistency:\n"
-        "Company name, Department, Job title, Last name, First name, Last name (lowercase Roman letters), First name (lowercase Roman letters), Domain likely to be used in email addresses\n" # Explicitly ask for strict CSV columns WITHOUT brackets
+        "Finally, format the complete, deduplicated list as a **strict CSV** table with the following Japanese columns, ensuring data accuracy and consistency:\n"
+        "会社名, 部署, 役職, 姓, 名, 姓（小文字ローマ字）, 名（小文字ローマ字）, メールアドレスに使用される可能性が高いドメイン\n" # Explicitly ask for strict CSV columns WITHOUT brackets
         "**IMPORTANT:** Ensure that no commas are included *within* any of the data fields (e.g., Department or Job title). If a department or job title contains a comma in the source, remove or replace the comma (e.g., with a semicolon or space) in the output CSV field.\n" # Explicitly add instruction to avoid commas in fields
         "If a field is missing, leave the corresponding cell empty. "
         "If a job title is not clearly available from the source, use the department name or the best possible approximation. Ensure all Romanized names are in lowercase. "

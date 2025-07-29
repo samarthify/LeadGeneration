@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Lead Generation Tool</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👥</text></svg>">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -390,6 +391,97 @@
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
+        /* Progress Section Styles */
+        .progress-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .progress-section h4 {
+            color: #4ade80;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .progress-summary {
+            background: rgba(74, 222, 128, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .progress-summary p {
+            color: rgba(255, 255, 255, 0.9);
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .search-details h5 {
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+
+        .search-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .search-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .search-query {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .query-number {
+            color: #4ade80;
+            font-weight: 600;
+            margin-right: 8px;
+            min-width: 20px;
+        }
+
+        .query-text {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+
+        .search-results {
+            margin-left: 28px;
+        }
+
+        .urls-found {
+            color: #60a5fa;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .url-preview {
+            margin-top: 8px;
+        }
+
+        .url-item {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.75rem;
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin: 2px 0;
+            word-break: break-all;
+        }
+
         /* Full page layout for desktop */
         @media (min-width: 1024px) {
             .container {
@@ -475,10 +567,14 @@
 
         <form id="csv-upload-form" enctype="multipart/form-data" style="margin-bottom: 30px; display: none;">
             <div class="form-group">
-                <label for="csv-file">Batch Upload (CSV of Company Names)</label>
+                <label for="csv-file">Batch Upload (CSV of Company Names and Websites)</label>
                 <div class="input-group">
                     <input type="file" id="csv-file" accept=".csv" />
                 </div>
+                <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9rem; margin-top: 8px; text-align: center;">
+                    CSV format: Company Name, Website URL (optional)<br>
+                    Example: Sony,https://www.sony.com
+                </p>
             </div>
             <button type="submit" class="btn" id="csv-upload-btn">Upload & Generate for All Companies</button>
         </form>
@@ -495,6 +591,16 @@
                     />
                 </div>
             </div>
+            <div class="form-group">
+                <label for="website">Company Website (Optional)</label>
+                <div class="input-group">
+                    <input 
+                        type="url" 
+                        id="website" 
+                        placeholder="Enter company website (e.g., https://www.sony.com) - Helps with search accuracy" 
+                    />
+                </div>
+            </div>
             <button type="submit" class="btn" id="submit-btn">
                 Generate Comprehensive Employee Data
             </button>
@@ -502,16 +608,18 @@
 
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p>Searching for executives and general employees...</p>
+            <p>Searching for executives and general employees (up to 5 minutes per company)...</p>
+            <div id="progress-info" style="margin-top: 15px; color: rgba(255,255,255,0.8); font-size: 0.9rem;"></div>
         </div>
 
         <div class="results" id="results"></div>
-        <div class="results batch-grid" id="batch-results" style="display:none; max-height: 600px; overflow-y: auto; margin-top: 40px;"></div>
+        <div class="results batch-grid" id="batch-results" style="display:none; max-height: 600px; overflow-y: auto; margin-top: 40px; border: 2px solid red;"></div>
     </div>
 
     <script>
         const form = document.getElementById('search-form');
         const companyInput = document.getElementById('company');
+        const websiteInput = document.getElementById('website'); // New website input
         const submitBtn = document.getElementById('submit-btn');
         const loading = document.getElementById('loading');
         const results = document.getElementById('results');
@@ -561,6 +669,7 @@
         form.onsubmit = async (e) => {
             e.preventDefault();
             const company = companyInput.value.trim();
+            const website = websiteInput.value.trim();
             
             if (!company) {
                 alert('Please enter a company name.');
@@ -577,7 +686,10 @@
                 const response = await fetch('/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ company_name: company })
+                    body: JSON.stringify({ 
+                        company_name: company,
+                        company_website: website 
+                    })
                 });
 
                 const data = await response.json();
@@ -613,14 +725,21 @@
             const formData = new FormData();
             formData.append('file', file);
             try {
-                // Clear previous results and show batch results area
-                batchResults.style.display = 'block';
-                batchResults.innerHTML = '';
+                            // Clear previous results and show batch results area
+            console.log('Starting batch processing, showing batch results area');
+            batchResults.style.display = 'block';
+            batchResults.innerHTML = '';
+            console.log('Batch results area display:', batchResults.style.display);
+            console.log('Batch results area visibility:', batchResults.offsetHeight, batchResults.offsetWidth);
                 
                 // Upload file and handle streaming response
                 const response = await fetch('/upload', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: {
+                        'Accept': 'text/event-stream',
+                        'Cache-Control': 'no-cache'
+                    }
                 });
                 
                 if (!response.ok) {
@@ -629,40 +748,98 @@
                     return;
                 }
                 
-                // Handle streaming response
+                                // Handle streaming response with better error handling
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to start batch processing');
+                }
+                
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let buffer = '';
                 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    const chunk = decoder.decode(value);
-                    const lines = chunk.split('\n');
-                    
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.slice(6));
-                                
-                                if (data.status === 'complete') {
-                                    loading.style.display = 'none';
-                                    csvUploadBtn.disabled = false;
-                                    csvUploadBtn.textContent = 'Upload & Generate for All Companies';
-                                    return;
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            console.log('SSE stream completed');
+                            break;
+                        }
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                        
+                        for (const line of lines) {
+                            if (line.trim() && line.startsWith('data: ')) {
+                                console.log('Received SSE line:', line);
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    
+                                    if (data.status === 'complete') {
+                                        console.log('Batch processing completed');
+                                        loading.style.display = 'none';
+                                        csvUploadBtn.disabled = false;
+                                        csvUploadBtn.textContent = 'Upload & Generate for All Companies';
+                                        return;
+                                    }
+                                    
+                                    if (data.status === 'started') {
+                                        console.log('Batch processing started for', data.total_companies, 'companies');
+                                        const loadingText = document.querySelector('#loading p');
+                                        if (loadingText) {
+                                            loadingText.textContent = `Starting batch processing for ${data.total_companies} companies...`;
+                                        }
+                                        continue;
+                                    }
+                                    
+                                    if (data.status === 'processing') {
+                                        // Update loading message with progress
+                                        const loadingText = document.querySelector('#loading p');
+                                        const progressInfo = document.querySelector('#progress-info');
+                                        if (loadingText) {
+                                            loadingText.textContent = `Processing ${data.company}...`;
+                                        }
+                                        if (progressInfo) {
+                                            progressInfo.textContent = `Progress: ${data.progress}`;
+                                        }
+                                        continue;
+                                    }
+                                    
+                                    // Display individual company result
+                                    console.log('Received company data:', data);
+                                    console.log('Company name:', data.company);
+                                    console.log('Parsed successfully:', data.parsed_successfully);
+                                    console.log('Rows found:', data.rows_found);
+                                    displaySingleBatchResult(data);
+                                } catch (e) {
+                                    console.error('Error parsing SSE data:', e);
                                 }
-                                
-                                // Display individual company result
-                                displaySingleBatchResult(data);
-                            } catch (e) {
-                                console.error('Error parsing SSE data:', e);
                             }
                         }
+                    }
+                } catch (error) {
+                    console.error('Error reading SSE stream:', error);
+                    if (error.name === 'TypeError' && error.message.includes('message channel closed')) {
+                        displayError('Connection was interrupted. Please try again.');
+                    } else {
+                        displayError(`Streaming error: ${error.message}`);
+                    }
+                } finally {
+                    try {
+                        reader.releaseLock();
+                    } catch (e) {
+                        console.log('Reader already released');
                     }
                 }
                  
             } catch (error) {
-                displayError(`Network error: ${error.message}`);
+                console.error('Batch processing error:', error);
+                if (error.message.includes('message channel closed') || error.message.includes('Connection was interrupted')) {
+                    displayError('Connection was interrupted. The server may be processing a large batch. Please wait a moment and try again.');
+                } else {
+                    displayError(`Network error: ${error.message}`);
+                }
                 loading.style.display = 'none';
                 csvUploadBtn.disabled = false;
                 csvUploadBtn.textContent = 'Upload & Generate for All Companies';
@@ -671,6 +848,11 @@
 
         function displayResults(data, company) {
             results.style.display = 'block';
+            
+            // Debug logging
+            console.log('Displaying results for:', company);
+            console.log('Data received:', data);
+            console.log('Search progress:', data.search_progress);
             
             let statusClass = 'status-success';
             let statusText = 'Success';
@@ -687,6 +869,49 @@
                         <div class="result-status ${statusClass}">${statusText}</div>
                     </div>
             `;
+
+            // Add search progress information if available
+            if (data.search_progress && data.search_progress.length > 0) {
+                console.log('Adding progress section with data:', data.search_progress);
+                html += `
+                    <div class="progress-section">
+                        <h4>🔍 Search Progress</h4>
+                        <div class="progress-summary">
+                            <p><strong>Total URLs Found:</strong> ${data.total_urls_found || 0}</p>
+                            <p><strong>Search Queries Executed:</strong> ${data.search_progress.length}</p>
+                        </div>
+                        <div class="search-details">
+                            <h5>Search Details:</h5>
+                            <div class="search-list">
+                `;
+                
+                data.search_progress.forEach((search, index) => {
+                    html += `
+                        <div class="search-item">
+                            <div class="search-query">
+                                <span class="query-number">${index + 1}.</span>
+                                <span class="query-text">${search.query}</span>
+                            </div>
+                            <div class="search-results">
+                                <span class="urls-found">${search.urls_found} URLs found</span>
+                                ${search.urls && search.urls.length > 0 ? `
+                                    <div class="url-preview">
+                                        ${search.urls.map(url => `<div class="url-item">${url}</div>`).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                console.log('No search progress data found:', data);
+            }
 
             if (data.parsed_successfully && data.rows_found > 0) {
                 html += `
@@ -711,6 +936,13 @@
                         ${data.warning ? '<br><br>' + data.warning : ''}
                     </div>
                 `;
+                if (data.raw_download_url) {
+                    html += `
+                        <a href="${data.raw_download_url}" class="download-btn" download>
+                            📥 Download Raw AI Response as CSV
+                        </a>
+                    `;
+                }
             }
 
             // Always show AI response prominently
@@ -728,6 +960,8 @@
             html += '</div>';
             results.innerHTML = html;
         }
+
+
 
         function displayBatchResults(resultsArr) {
             batchResults.style.display = 'block';
@@ -750,6 +984,46 @@
                         <div class="result-status ${statusClass}">${statusText}</div>
                     </div>
                 `;
+
+                // Add search progress information for batch results
+                if (data.search_progress && data.search_progress.length > 0) {
+                    html += `
+                        <div class="progress-section">
+                            <h4>🔍 Search Progress</h4>
+                            <div class="progress-summary">
+                                <p><strong>Total URLs Found:</strong> ${data.total_urls_found || 0}</p>
+                                <p><strong>Search Queries Executed:</strong> ${data.search_progress.length}</p>
+                            </div>
+                            <div class="search-details">
+                                <h5>Search Details:</h5>
+                                <div class="search-list">
+                    `;
+                    
+                    data.search_progress.forEach((search, index) => {
+                        html += `
+                            <div class="search-item">
+                                <div class="search-query">
+                                    <span class="query-number">${index + 1}.</span>
+                                    <span class="query-text">${search.query}</span>
+                                </div>
+                                <div class="search-results">
+                                    <span class="urls-found">${search.urls_found} URLs found</span>
+                                    ${search.urls && search.urls.length > 0 ? `
+                                        <div class="url-preview">
+                                            ${search.urls.map(url => `<div class="url-item">${url}</div>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
                 if (data.error) {
                     html += `<div class="error-message"><strong>Error:</strong> ${data.error}</div>`;
                 } else if (data.parsed_successfully && data.rows_found > 0) {
@@ -775,6 +1049,13 @@
                             ${data.warning ? '<br><br>' + data.warning : ''}
                         </div>
                     `;
+                    if (data.raw_download_url) {
+                        html += `
+                            <a href="${data.raw_download_url}" class="download-btn" download>
+                                📥 Download Raw AI Response as CSV
+                            </a>
+                        `;
+                    }
                 }
                 // Always show AI response if available
                 if (data.ai_response) {
@@ -843,6 +1124,8 @@
         }
 
         function displaySingleBatchResult(data) {
+            console.log('displaySingleBatchResult called with:', data);
+            
             let statusClass = 'status-success';
             let statusText = 'Success';
             if (data.error) {
@@ -860,6 +1143,46 @@
                     <div class="result-status ${statusClass}">${statusText}</div>
                 </div>
             `;
+
+            // Add search progress information if available
+            if (data.search_progress && data.search_progress.length > 0) {
+                html += `
+                    <div class="progress-section">
+                        <h4>🔍 Search Progress</h4>
+                        <div class="progress-summary">
+                            <p><strong>Total URLs Found:</strong> ${data.total_urls_found || 0}</p>
+                            <p><strong>Search Queries Executed:</strong> ${data.search_progress.length}</p>
+                        </div>
+                        <div class="search-details">
+                            <h5>Search Details:</h5>
+                            <div class="search-list">
+                `;
+                
+                data.search_progress.forEach((search, index) => {
+                    html += `
+                        <div class="search-item">
+                            <div class="search-query">
+                                <span class="query-number">${index + 1}.</span>
+                                <span class="query-text">${search.query}</span>
+                            </div>
+                            <div class="search-results">
+                                <span class="urls-found">${search.urls_found} URLs found</span>
+                                ${search.urls && search.urls.length > 0 ? `
+                                    <div class="url-preview">
+                                        ${search.urls.map(url => `<div class="url-item">${url}</div>`).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
             
             if (data.error) {
                 html += `<div class="error-message"><strong>Error:</strong> ${data.error}</div>`;
@@ -877,16 +1200,23 @@
                         The AI search completed but no employee information was found for this company.
                     </div>
                 `;
-            } else {
-                html += `
-                    <div class="warning-message">
-                        <strong>Parsing failed</strong><br>
-                        The AI found some data but couldn't parse it into the expected format. 
-                        You can view the raw AI response below and manually extract the information.
-                        ${data.warning ? '<br><br>' + data.warning : ''}
-                    </div>
-                `;
-            }
+                            } else {
+                    html += `
+                        <div class="warning-message">
+                            <strong>Parsing failed</strong><br>
+                            The AI found some data but couldn't parse it into the expected format. 
+                            You can view the raw AI response below and manually extract the information.
+                            ${data.warning ? '<br><br>' + data.warning : ''}
+                        </div>
+                    `;
+                    if (data.raw_download_url) {
+                        html += `
+                            <a href="${data.raw_download_url}" class="download-btn" download>
+                                📥 Download Raw AI Response as CSV
+                            </a>
+                        `;
+                    }
+                }
             
             // Always show AI response if available
             if (data.ai_response) {
@@ -905,7 +1235,10 @@
             html += '</div>';
             
             // Append the new result to the batch results area
+            console.log('Adding HTML to batch results area');
+            console.log('Batch results area visible:', batchResults.offsetHeight > 0);
             batchResults.insertAdjacentHTML('beforeend', html);
+            console.log('HTML added successfully');
         }
     </script>
 </body>
