@@ -71,12 +71,12 @@ class Config:
     request_delay: float = 0.5
     
     # Tavily settings
-    tavily_max_results: int = 5
+    tavily_max_results: int = 10
     tavily_search_depth: str = "advanced"
     
     # Processing settings
-    max_urls_per_company: int = 8
-    max_search_results: int = 10
+    max_urls_per_company: int = 20
+    max_search_results: int = 50
     
     # File settings
     generated_dir: str = 'generated'
@@ -339,97 +339,387 @@ def make_api_request_with_tools(messages, max_retries=None, retry_count=0):
         logger.error(f"API request failed permanently: {e}")
         return None
 
-def fetch_url_content(url, max_length=5000):
-    """Fetch content from a URL and extract relevant text."""
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        # soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # # Remove script and style elements
-        # for script in soup(["script", "style"]):
-        #     script.decompose()
-        
-        # # Extract text content
-        # text = soup.get_text()
-        
-        # # Clean up whitespace
-        # lines = (line.strip() for line in text.splitlines())
-        # chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        # text = ' '.join(chunk for chunk in chunks if chunk)
-        
-        # # Limit length to avoid token limits
-        # if len(text) > max_length:
-        #     text = text[:max_length] + "..."
-        
-        return response.text # Return raw text content
-    except Exception as e:
-        print(f"Failed to fetch content from {url}: {e}")
-        return ""
 
-def extract_employee_data_from_urls(urls, company_name):
-    """Extract employee-related content from URLs."""
-    employee_content = []
-    
-    for url in urls[:5]:  # Limit to first 5 URLs to avoid token limits
-        content = fetch_url_content(url)
-        if content:
-            # Look for employee-related keywords in the content
-            employee_keywords = ['executive', 'director', 'manager', 'president', 'ceo', 'cfo', 'cto', 'vice president', 'employee', 'staff', 'team']
-            if any(keyword in content.lower() for keyword in employee_keywords):
-                employee_content.append(f"Content from {url}:\n{content}\n")
-    
-    return "\n".join(employee_content)
 
-# Comprehensive prompt for employee data extraction
-STRICT_CSV_PROMPT = (
-    "Find and list employees for the company '{company}'. "
-    "YOUR PRIMARY GOAL: Extract QUALITY employee data with accurate names and titles. "
-    "IMPORTANT: Focus on finding REAL employees with COMPLETE information. "
-    "Search for ALL types of employees including: "
-    "- Executives (CEO, CFO, CTO, Directors, Auditors, Executive Officers) "
-    "- Senior Management (VPs, Senior Directors, Regional Heads) "
-    "- Middle Management (Managers, Team Leads, Department Heads) "
-    "- General Employees (Engineers, Analysts, Specialists, Coordinators, etc.) "
-    "- Support Staff (HR, IT, Marketing, Sales, Operations, etc.) "
-    "- Technical Staff (Developers, Designers, Researchers, etc.) "
-    "- Administrative Staff (Assistants, Coordinators, etc.) "
-    "- Board Members and Advisors "
-    "SEARCH STRATEGY - Perform these searches in order: "
-    "1. Search for executives and leadership team "
-    "2. Search for middle management and department heads "
-    "3. Search for technical staff and engineers "
-    "4. Search for support staff and administrative roles "
-    "5. Search for company team pages and about us sections "
-    "Search multiple reliable sources such as official company websites (e.g., 'About Us', 'Leadership', 'Team', 'Our People', 'Careers', 'Meet the Team' pages), "
-    "press releases, and reputable business news articles. "
-    "QUALITY REQUIREMENTS: "
-    "- ONLY include employees with COMPLETE names (first AND last name) "
-    "- NO duplicate entries "
-    "- NO entries with missing names "
-    "- NO generic titles like 'Administrative Assistant' without specific names "
-    "- NO interns or temporary positions unless they have specific names "
-    "- MAXIMUM 30-40 QUALITY entries "
-    "For each employee, extract their department and precise job title if available. "
-    "Provide names in both native script (if found) and Roman alphabet. "
-    "After collecting data from multiple searches, carefully deduplicate entries based on their Romanized names (lowercase). "
-    "Determine the most likely primary email domain for employees of this company. "
-    "Finally, format the complete, deduplicated list as a **strict CSV** table with the following Japanese columns, ensuring data accuracy and consistency:\n"
-    "会社名, 部署, 役職, 姓, 名, 姓（小文字ローマ字）, 名（小文字ローマ字）, メールアドレスに使用される可能性が高いドメイン\n"
-    "**IMPORTANT:** Ensure that no commas are included *within* any of the data fields. If a department or job title contains a comma in the source, remove or replace the comma (e.g., with a semicolon or space) in the output CSV field.\n"
-    "If a field is missing, leave the corresponding cell empty. "
-    "If a job title is not clearly available from the source, use the department name or the best possible approximation. Ensure all Romanized names are in lowercase. "
-    "**CRITICAL:** Output ONLY the CSV data within a markdown code block (```csv ... ```), with the header row first, then data rows. No extra text outside the code block."
+# Step 1: Data gathering prompt
+GATHER_DATA_PROMPT = (
+    "Analyze the provided search results and gather comprehensive employee data for Japanese company '{company}' (website: {company_website}). "
+    "STRATEGY: "
+    "1. First, extract all employee information from the provided search results and URLs. "
+    "2. Identify what types of employees are missing (executives, managers, technical staff, etc.). "
+    "3. Use web_search to find missing employee types, focusing on gaps identified. "
+    "4. Prioritize searches for: CEOs, Presidents, CTOs, CFOs, Directors, Managers, Engineers, Sales staff. "
+    "5. Target sources: LinkedIn profiles, company websites, press releases, executive directories. "
+    "OUTPUT: List all found employees with names, titles, departments. Format as simple list."
+)
+
+# Step 2: Data processing prompt
+PROCESS_DATA_PROMPT = (
+    "Process the gathered employee data into structured CSV format. "
+    "GOAL: Create clean, deduplicated CSV with 50+ employees. "
+    "QUALITY: Complete names preferred, no duplicates, include all employee types. "
+    "OUTPUT FORMAT - CRITICAL: "
+    "Output ONLY a CSV table with these exact columns: "
+    "会社名, 部署, 役職, 姓, 名, 姓（小文字ローマ字）, 名（小文字ローマ字）, メールアドレスに使用される可能性が高いドメイン "
+    "Format: ```csv [header row] [data rows] ``` - NO other text outside code block. "
+    "IMPORTANT: Use double quotes around all fields to handle commas in job titles. "
+    "CRITICAL: Replace commas with underscores (_) in job titles and other fields. "
+    "Example: \"Company Name\",\"Department\",\"Job Title_with_commas\",\"Last Name\",\"First Name\",\"lastname\",\"firstname\",\"domain.com\" "
+    "Extract: Company name, Department, Job title, Surname (kanji/kana), First name (kanji/kana), "
+    "Romanized English surname (lowercase), Romanized English first name (lowercase), Email domain."
 )
 
 def extract_code_blocks(text):
     """Extracts content within triple backticks (code blocks)."""
     pattern = r"```(?:\w+)?\n(.*?)```"
     return re.findall(pattern, text, re.DOTALL)
+
+def generate_search_queries(company_name: str, company_website: str = "", domain: str = None) -> list:
+    """Generate 10 comprehensive search queries for employee discovery."""
+    
+    # Basic executive and management searches (most important)
+    queries = [
+        # 1. Basic Executive Search - CEO, President, CTO, etc.
+        f'"{company_name}" (CEO OR President OR CTO OR CFO OR COO OR "Chief Executive" OR "Chief Technology" OR "Chief Financial")',
+        
+        # 2. Japanese Executive Search
+        f'"{company_name}" (社長 OR 代表取締役 OR 取締役 OR 副社長 OR 専務 OR 常務)',
+        
+        # 3. Management Team Search
+        f'"{company_name}" (Director OR Manager OR VP OR "Vice President" OR 部長 OR 課長 OR マネージャー)',
+        
+        # 4. LinkedIn Employee Search
+        f'site:linkedin.com/in "{company_name}" "Japan"',
+        
+        # 5. Company Website Employee Search
+        f'"{company_name}" (employee OR staff OR team OR 社員 OR 従業員)',
+        
+        # 6. Executive Team and Leadership
+        f'"{company_name}" (executive OR leadership OR management OR 役員 OR 幹部)',
+        
+        # 7. Board of Directors
+        f'"{company_name}" (board OR director OR 取締役会 OR 監査役)',
+        
+        # 8. Technical Staff
+        f'"{company_name}" (engineer OR developer OR エンジニア OR 技術者)',
+        
+        # 9. Sales and Business Staff
+        f'"{company_name}" (sales OR business OR 営業 OR ビジネス)',
+        
+        # 10. Company About/Team Pages
+        f'"{company_name}" (about OR team OR company OR 会社 OR 企業)'
+    ]
+    
+    # Add domain-specific searches if available
+    if domain:
+        domain_queries = [
+            # Domain-specific executive searches
+            f'"{company_name}" (CEO OR President OR 社長 OR 代表取締役) site:{domain}',
+            f'"{company_name}" (executive OR management OR 役員) site:{domain}',
+            f'"{company_name}" (team OR staff OR 社員) site:{domain}',
+            f'"{company_name}" (about OR company OR 会社) site:{domain}',
+            f'"{company_name}" (leadership OR 幹部) site:{domain}'
+        ]
+        # Replace last 5 queries with domain-specific ones
+        queries = queries[:5] + domain_queries
+    
+    logger.info(f"Generated {len(queries)} comprehensive search queries for {company_name}")
+    return queries
+
+def extract_domain_from_website(company_website: str) -> str:
+    """Extract domain from company website URL."""
+    domain = None
+    if company_website:
+        try:
+            from urllib.parse import urlparse
+            parsed_url = urlparse(company_website)
+            domain = parsed_url.netloc
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            logger.info(f"Extracted domain: {domain}")
+        except Exception as e:
+            logger.error(f"Failed to parse website URL: {e}")
+    return domain
+
+def create_system_message_step1() -> str:
+    """Create system message for Step 1: Data gathering."""
+    return (
+        "You are an analytical research assistant gathering employee data. "
+        "First analyze the provided search results to extract employee information. "
+        "Then identify gaps in employee coverage (missing executives, managers, technical staff, etc.). "
+        "Use web_search tool strategically to fill these gaps. "
+        "Focus on finding CEOs, Presidents, CTOs, CFOs, Directors, Managers, and Engineers. "
+        "Output comprehensive employee data in simple list format."
+    )
+
+def create_system_message_step2() -> str:
+    """Create system message for Step 2: Data processing."""
+    return (
+        "Process employee data into structured CSV format. "
+        "Clean, deduplicate, and format the gathered employee information. "
+        "Output ONLY CSV table in markdown code block (```csv ... ```). "
+        "No extra text outside code block."
+    )
+
+def save_csv_file(df: pd.DataFrame, company_name: str, suffix: str = "") -> str:
+    """Save DataFrame as CSV file and return download URL."""
+    filename = f"{company_name}_{uuid.uuid4().hex[:8]}{suffix}.csv"
+    filepath = os.path.join(GENERATED_DIR, filename)
+    try:
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+        download_url = f'/download/{filename}'
+        logger.info(f"Successfully saved CSV file: {filename}")
+        return download_url
+    except Exception as e:
+        logger.error(f"Failed to save CSV file {filename}: {e}")
+        return None
+
+def save_raw_file(content: str, company_name: str, suffix: str = "_raw") -> str:
+    """Save raw content as file and return download URL."""
+    filename = f"{company_name}_{uuid.uuid4().hex[:8]}{suffix}.csv"
+    filepath = os.path.join(GENERATED_DIR, filename)
+    try:
+        with open(filepath, 'w', encoding='utf-8-sig') as f:
+            f.write(content)
+        download_url = f'/download/{filename}'
+        logger.info(f"Successfully saved raw file: {filename}")
+        return download_url
+    except Exception as e:
+        logger.error(f"Failed to save raw file {filename}: {e}")
+        return None
+
+def prepare_search_content(all_results: list, max_results: int = None, content_length: int = 500) -> str:
+    """Prepare search results content for AI analysis."""
+    if max_results is None:
+        max_results = config.max_search_results
+    
+    search_content = ""
+    for i, result in enumerate(all_results[:max_results]):
+        search_content += f"\nResult {i+1}:\nTitle: {result['title']}\nURL: {result['url']}\nContent: {result['content'][:content_length]}...\n"
+    
+    return search_content
+
+def prepare_website_info(company_website: str, domain: str) -> str:
+    """Prepare website information for AI prompt."""
+    website_info = ""
+    if company_website:
+        website_info = f"\nCompany Website: {company_website}\nDomain: {domain if domain else 'Not specified'}"
+    return website_info
+
+def log_processing_debug(company_name: str, csv_content: str, df: pd.DataFrame, is_batch: bool = False):
+    """Log debug information for processing results."""
+    if is_batch:
+        print(f"RAW AI OUTPUT for {company_name}:", csv_content)  # Debug logging
+        print(f"Parsed DataFrame shape for {company_name}: {df.shape}")  # Debug logging
+        print(f"DataFrame columns for {company_name}: {list(df.columns)}")  # Debug logging
+    else:
+        print("RAW AI OUTPUT:", csv_content)  # Debug logging
+        print(f"Parsed DataFrame shape: {df.shape}")  # Debug logging
+        print(f"DataFrame columns: {list(df.columns)}")  # Debug logging
+
+def log_processing_start(company_name: str, is_batch: bool = False, batch_index: int = None, total_companies: int = None):
+    """Log the start of processing for a company."""
+    if is_batch and batch_index is not None and total_companies is not None:
+        logger.info(f"Processing company {batch_index+1}/{total_companies}: {company_name}")
+    else:
+        logger.info(f"Starting employee research for company: {company_name}")
+
+def log_processing_error(company_name: str, error: Exception, is_batch: bool = False):
+    """Log processing errors consistently."""
+    logger.error(f"Error processing {company_name}: {error}")
+
+def log_urls_found(company_name: str, urls: list, is_batch: bool = False):
+    """Log the number of URLs found for a company."""
+    if is_batch:
+        logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls[:5]}...")  # Log first 5 URLs
+    else:
+        logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls}")
+
+def log_openai_request(company_name: str, is_batch: bool = False):
+    """Log OpenAI API request initiation."""
+    if is_batch:
+        logger.info(f"Sending request to OpenAI with function calling for {company_name}")
+    else:
+        logger.info("Sending request to OpenAI with function calling")
+
+def log_openai_response(company_name: str, is_batch: bool = False):
+    """Log OpenAI API response received."""
+    if is_batch:
+        logger.info(f"Received response from OpenAI, parsing CSV for {company_name}")
+    else:
+        logger.info("Received response from OpenAI, parsing CSV")
+
+def handle_no_urls_found(company_name: str, search_progress: list, is_batch: bool = False):
+    """Handle the case when no URLs are found for a company."""
+    logger.warning("No relevant pages found.")
+    if is_batch:
+        return {
+            'company': company_name, 
+            'error': 'No relevant pages found.',
+            'search_progress': search_progress
+        }
+    else:
+        return jsonify({'error': 'No relevant pages found.'}), 404
+
+def make_api_request_without_tools(messages, max_retries=None, retry_count=0):
+    """Make OpenAI API request without function calling (for Step 2 processing)."""
+    if max_retries is None:
+        max_retries = config.max_retries
+    
+    try:
+        logger.info(f"Making API request without tools (attempt {retry_count + 1}/{max_retries + 1})")
+        
+        response = openai.chat.completions.create(
+            model=config.model,
+            messages=messages,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            frequency_penalty=config.frequency_penalty,
+            presence_penalty=config.presence_penalty
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        if retry_count < max_retries:
+            logger.warning(f"API request failed (attempt {retry_count + 1}): {e}")
+            time.sleep(config.request_delay * (2 ** retry_count))  # Exponential backoff
+            return make_api_request_without_tools(messages, max_retries, retry_count + 1)
+        else:
+            logger.error(f"API request failed after {max_retries + 1} attempts: {e}")
+            return None
+
+def execute_two_step_process(company_name: str, company_website: str, domain: str, 
+                           search_content: str, urls: list) -> str:
+    """Execute two-step process: gather data, then process into CSV."""
+    
+    # Step 1: Gather comprehensive employee data (WITH tools)
+    logger.info(f"Step 1: Gathering employee data for {company_name}")
+    
+    system_message_step1 = create_system_message_step1()
+    user_message_step1 = GATHER_DATA_PROMPT.format(company=company_name, company_website=company_website)
+    user_message_step1 += f"\n\nSEARCH RESULTS:\n{search_content}\n\n"
+    user_message_step1 += f"URLS: {urls}\n\n"
+    user_message_step1 += "Use web_search to find additional employee information. "
+    user_message_step1 += "Collect names, titles, departments from all sources. "
+    user_message_step1 += "Output as simple list of employees found."
+    
+    messages_step1 = [
+        {"role": "system", "content": system_message_step1},
+        {"role": "user", "content": user_message_step1}
+    ]
+    
+    gathered_data = make_api_request_with_tools(messages_step1)
+    if not gathered_data:
+        logger.error("Step 1 failed: No data gathered")
+        return None
+    
+    logger.info(f"Step 1 completed: Gathered employee data for {company_name}")
+    
+    # Step 2: Process gathered data into CSV format (WITHOUT tools)
+    logger.info(f"Step 2: Processing data into CSV for {company_name}")
+    
+    system_message_step2 = create_system_message_step2()
+    user_message_step2 = PROCESS_DATA_PROMPT
+    user_message_step2 += f"\n\nGATHERED EMPLOYEE DATA:\n{gathered_data}\n\n"
+    user_message_step2 += f"COMPANY: {company_name}\n"
+    user_message_step2 += f"WEBSITE: {company_website}\n"
+    user_message_step2 += "Process this data into structured CSV format with Japanese column headers."
+    
+    messages_step2 = [
+        {"role": "system", "content": system_message_step2},
+        {"role": "user", "content": user_message_step2}
+    ]
+    
+    csv_content = make_api_request_without_tools(messages_step2)
+    if not csv_content:
+        logger.error("Step 2 failed: No CSV generated")
+        return None
+    
+    logger.info(f"Step 2 completed: Generated CSV for {company_name}")
+    return csv_content
+
+def create_result_dict(company_name: str, csv_content: str, df: pd.DataFrame, 
+                      search_progress: list, urls: list, is_batch: bool = False) -> dict:
+    """Create standardized result dictionary for both single and batch processing."""
+    result = {
+        'ai_response': csv_content,
+        'parsed_successfully': not df.empty,
+        'rows_found': len(df) if not df.empty else 0,
+        'search_progress': search_progress,
+        'total_urls_found': len(urls),
+        'unique_urls': urls,
+    }
+    
+    # Add company name for batch processing
+    if is_batch:
+        result['company'] = company_name
+    
+    # Add download URLs if files were successfully saved
+    if not df.empty:
+        download_url = save_csv_file(df, company_name)
+        if download_url:
+            result['download_url'] = download_url
+    else:
+        # Save raw content if parsing failed
+        raw_download_url = save_raw_file(csv_content, company_name)
+        if raw_download_url:
+            result['raw_download_url'] = raw_download_url
+    
+    return result
+
+def execute_search_queries(queries: list, company_name: str, max_results: int = None, delay: float = 0.0) -> tuple:
+    """Execute search queries and return URLs, results, and progress."""
+    if max_results is None:
+        max_results = 8  # Reduced from config.tavily_max_results (10) to 8 for token limit
+    
+    all_urls = []
+    all_results = []
+    search_progress = []
+    
+    logger.info(f"Starting search with {len(queries)} queries for {company_name}")
+    for i, query in enumerate(queries):
+        try:
+            logger.info(f"Searching query {i+1}/{len(queries)}: {query}")
+            try:
+                tavily_res = tavily.search(
+                    query=query,
+                    search_depth=config.tavily_search_depth,
+                    max_results=max_results
+                )
+                urls = [item['url'] for item in tavily_res.get('results', [])]
+                all_urls.extend(urls)
+            except Exception as search_error:
+                logger.error(f"Tavily search failed for query '{query}': {search_error}")
+                urls = []
+                tavily_res = {'results': []}
+            
+            # Log search progress
+            search_progress.append({
+                'query': query,
+                'urls_found': len(urls),
+                'urls': urls[:3]  # Show first 3 URLs
+            })
+            
+            # Also collect the search result content for AI analysis
+            for result in tavily_res.get('results', []):
+                all_results.append({
+                    'title': result.get('title', ''),
+                    'content': result.get('content', ''),
+                    'url': result.get('url', '')
+                })
+            logger.info(f"Found {len(urls)} URLs for query: {query}")
+            
+            # Add delay between searches if specified
+            if delay > 0:
+                time.sleep(delay)
+                
+        except Exception as e:
+            logger.error(f"Search query failed for '{query}': {e}")
+            continue
+    
+    return all_urls, all_results, search_progress
 
 def parse_csv_from_ai_output(raw_ai_output):
     """Robust parsing that always returns a DataFrame, even with malformed data."""
@@ -461,16 +751,16 @@ def parse_csv_from_ai_output(raw_ai_output):
         # Use io.StringIO to read the string content
         csvfile = io.StringIO(csv_text)
         
-        # Try to sniff the delimiter
+        # Try to sniff the delimiter with better error handling
         try:
             sample_size = min(len(csv_text), 4096)
             dialect = csv.Sniffer().sniff(csv_text[:sample_size])
             reader = csv.reader(csvfile, dialect)
             logger.info(f"Detected CSV dialect: delimiter='{dialect.delimiter}', quotechar='{dialect.quotechar}'")
         except Exception as sniff_e:
-            logger.warning("CSV Sniffer failed, falling back to comma delimiter.")
+            logger.warning("CSV Sniffer failed, falling back to comma delimiter with proper quoting.")
             csvfile.seek(0)  # Reset file pointer
-            reader = csv.reader(csvfile, delimiter=',', quotechar='"')
+            reader = csv.reader(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
         
         # Read the header row
         try:
@@ -655,206 +945,41 @@ def generate():
     if not company_name:
         return jsonify({'error': 'Company name is required.'}), 400
     try:
-        logger.info(f"Starting employee research for company: {company_name}")
+        log_processing_start(company_name)
         
         # Extract domain from website if provided
-        domain = None
-        if company_website:
-            try:
-                from urllib.parse import urlparse
-                parsed_url = urlparse(company_website)
-                domain = parsed_url.netloc
-                if domain.startswith('www.'):
-                    domain = domain[4:]
-                logger.info(f"Extracted domain: {domain}")
-            except Exception as e:
-                logger.error(f"Failed to parse website URL: {e}")
+        domain = extract_domain_from_website(company_website)
         
-        # Tavily search - Enhanced to find both executives and general employees
-        queries = []
-        
-        if domain:
-            # When website is provided, prioritize domain-specific searches
-            queries = [
-                f"executive team leadership site:{domain}",
-                f"employees staff directory site:{domain}",
-                f"team members about us site:{domain}",
-                f"management team site:{domain}",
-                f"company directory employees site:{domain}",
-                f"about us team site:{domain}",
-                f"leadership team site:{domain}",
-                f"management site:{domain}",
-                f"our people site:{domain}",
-                f"team site:{domain}",
-                f"leadership site:{domain}",
-                f"executives site:{domain}",
-                f"board of directors site:{domain}",
-                f"organization chart site:{domain}",
-                # Add company name only for domain-specific searches
-                f"{company_name} site:{domain}",
-                f"{company_name} executive site:{domain}",
-                f"{company_name} team site:{domain}",
-                f"{company_name} management site:{domain}"
-            ]
-            logger.info(f"Using domain-specific searches for {domain}")
-        else:
-            # Fallback to company name searches when no website provided
-            queries = [
-                # English queries - comprehensive
-                f"{company_name} executive team leadership",
-                f"{company_name} employees staff directory",
-                f"{company_name} team members organization",
-                f"{company_name} management positions",
-                f"{company_name} company directory personnel",
-                f"{company_name} board of directors",
-                f"{company_name} employee list",
-                f"{company_name} organization chart",
-                # Fallback to common domains
-                f"{company_name} executive team leadership site:{company_name}.com",
-                f"{company_name} employees staff directory site:{company_name}.com",
-                f"{company_name} team members about us site:{company_name}.com",
-                f"{company_name} management team site:{company_name}.com",
-                f"{company_name} company directory employees site:{company_name}.com",
-                f"{company_name} executive team leadership site:{company_name}.co.jp",
-                f"{company_name} employees staff directory site:{company_name}.co.jp",
-                f"{company_name} team members about us site:{company_name}.co.jp",
-                f"{company_name} management team site:{company_name}.co.jp",
-                f"{company_name} company directory employees site:{company_name}.co.jp"
-            ]
-            logger.info(f"Using general company name searches for {company_name}")
-        
-        # Search for URLs
-        all_urls = []
-        all_results = []
-        search_progress = []
-        
-        logger.info(f"Starting search with {len(queries)} queries")
-        for i, query in enumerate(queries):
-            try:
-                logger.info(f"Searching query {i+1}/{len(queries)}: {query}")
-                try:
-                    tavily_res = tavily.search(
-                        query=query,
-                        search_depth=config.tavily_search_depth,
-                        max_results=config.tavily_max_results
-                    )
-                    urls = [item['url'] for item in tavily_res.get('results', [])]
-                    all_urls.extend(urls)
-                except Exception as search_error:
-                    logger.error(f"Tavily search failed for query '{query}': {search_error}")
-                    urls = []
-                    tavily_res = {'results': []}
-                
-                # Log search progress
-                search_progress.append({
-                    'query': query,
-                    'urls_found': len(urls),
-                    'urls': urls[:3]  # Show first 3 URLs
-                })
-                
-                # Also collect the search result content for AI analysis
-                for result in tavily_res.get('results', []):
-                    all_results.append({
-                        'title': result.get('title', ''),
-                        'content': result.get('content', ''),
-                        'url': result.get('url', '')
-                    })
-                logger.info(f"Found {len(urls)} URLs for query: {query}")
-            except Exception as e:
-                logger.error(f"Search query failed for '{query}': {e}")
-                continue
+        # Generate and execute search queries using unified functions
+        queries = generate_search_queries(company_name, company_website, domain)
+        all_urls, all_results, search_progress = execute_search_queries(queries, company_name)
         
         # Remove duplicates and limit to top results
         urls = list(dict.fromkeys(all_urls))[:config.max_urls_per_company]
-        logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls}")
+        log_urls_found(company_name, urls)
         
         if not urls:
-            logger.warning("No relevant pages found.")
-            return jsonify({'error': 'No relevant pages found.'}), 404
+            return handle_no_urls_found(company_name, search_progress)
         
         # Prepare search results content for AI
-        search_content = ""
-        for i, result in enumerate(all_results[:config.max_search_results]):
-            search_content += f"\nResult {i+1}:\nTitle: {result['title']}\nURL: {result['url']}\nContent: {result['content'][:500]}...\n"
+        search_content = prepare_search_content(all_results)
         
         # Add website information to prompt if available
-        website_info = ""
-        if company_website:
-            website_info = f"\nCompany Website: {company_website}\nDomain: {domain if domain else 'Not specified'}"
+        website_info = prepare_website_info(company_website, domain)
         
-        # OpenAI prompt with function calling approach
-        system_message = (
-            "You are a highly skilled research assistant AI specializing in extracting employee data from web search results. "
-            "IMPORTANT: Focus on finding a DIVERSE mix of employees, not just executives. "
-            "Use the web_search tool to find comprehensive information about ALL types of employees including: "
-            "- Executives and Senior Management "
-            "- Middle Management and Team Leads "
-            "- General Employees and Technical Staff "
-            "- Support Staff and Administrative Staff "
-            "Search for multiple sources including company websites, press releases, and professional networking sites. "
-            "After gathering data from multiple searches, format the complete, deduplicated list as a **strict CSV** table "
-            "with the specified columns within a markdown code block (```csv ... ```), including the header row, with no extra text."
-        )
-        
-        user_message = STRICT_CSV_PROMPT.format(company=company_name)
-        if company_website:
-            user_message += f"\n\nCompany Website: {company_website}"
-            if domain:
-                user_message += f"\nDomain: {domain}"
-        
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message}
-        ]
-        
-        logger.info("Sending request to OpenAI with function calling")
-        csv_content = make_api_request_with_tools(messages)
+        # Execute two-step process: gather data, then process into CSV
+        log_openai_request(company_name)
+        csv_content = execute_two_step_process(company_name, company_website, domain, search_content, urls)
         if not csv_content:
-            logger.error("Failed to get response from AI after retries.")
-            return jsonify({'error': 'Failed to get response from AI after retries.'}), 500
+            logger.error("Failed to complete two-step process.")
+            return jsonify({'error': 'Failed to complete two-step process.'}), 500
         
-        logger.info("Received response from OpenAI, parsing CSV")
-        print("RAW AI OUTPUT:", csv_content)  # Debug logging
+        log_openai_response(company_name)
         df = parse_csv_from_ai_output(csv_content)
-        print(f"Parsed DataFrame shape: {df.shape}")  # Debug logging
-        print(f"DataFrame columns: {list(df.columns)}")  # Debug logging
+        log_processing_debug(company_name, csv_content, df)
         
-        # Save the raw AI response as a .csv file for download
-        raw_filename = f"{company_name}_raw_{uuid.uuid4().hex[:8]}.csv"
-        raw_filepath = os.path.join(GENERATED_DIR, raw_filename)
-        try:
-            with open(raw_filepath, 'w', encoding='utf-8-sig') as f:
-                f.write(csv_content)
-        except Exception as e:
-            logger.error(f"Failed to save raw file {raw_filename}: {e}")
-            raw_filename = None
-        
-        # Return AI response and parsing results
-        result = {
-            'ai_response': csv_content,
-            'parsed_successfully': not df.empty,
-            'rows_found': len(df) if not df.empty else 0,
-            'search_progress': search_progress,
-            'total_urls_found': len(urls),
-            'unique_urls': urls,
-        }
-        
-        # Add download URLs only if files were successfully saved
-        if raw_filename:
-            result['raw_download_url'] = f'/download/{raw_filename}'
-        
-        if not df.empty:
-            # Save parsed CSV
-            filename = f"{company_name}_{uuid.uuid4().hex[:8]}.csv"
-            filepath = os.path.join(GENERATED_DIR, filename)
-            try:
-                df.to_csv(filepath, index=False, encoding='utf-8-sig')
-                result['download_url'] = f'/download/{filename}'
-                logger.info(f"Successfully processed {company_name}: {len(df)} employees found")
-            except Exception as e:
-                logger.error(f"Failed to save parsed CSV {filename}: {e}")
-        else:
-            logger.warning(f"No employee data parsed for {company_name}")
+        # Create standardized result dictionary
+        result = create_result_dict(company_name, csv_content, df, search_progress, urls)
         
         return jsonify(result)
         
@@ -906,179 +1031,33 @@ def upload_csv():
             company_name = company_data['name']
             company_website = company_data['website']
             
-            logger.info(f"Processing company {i+1}/{total_companies}: {company_name}")
+            log_processing_start(company_name, is_batch=True, batch_index=i, total_companies=total_companies)
             
             try:
                 # Extract domain from website if provided
-                domain = None
-                if company_website:
-                    try:
-                        from urllib.parse import urlparse
-                        parsed_url = urlparse(company_website)
-                        domain = parsed_url.netloc
-                        if domain.startswith('www.'):
-                            domain = domain[4:]
-                    except Exception as e:
-                        logger.error(f"Failed to parse website URL: {e}")
+                domain = extract_domain_from_website(company_website)
                 
-                # Comprehensive search queries - optimized for Vercel
-                queries = []
+                # Generate and execute search queries using unified functions
+                queries = generate_search_queries(company_name, company_website, domain)
+                all_urls, all_results, search_progress = execute_search_queries(
+                    queries, company_name, delay=0.3
+                )
                 
-                if domain:
-                    # When website is provided, prioritize domain-specific searches
-                    queries = [
-                        f"executive team leadership site:{domain}",
-                        f"employees staff directory site:{domain}",
-                        f"team members about us site:{domain}",
-                        f"management team site:{domain}",
-                        f"company directory employees site:{domain}",
-                        f"about us team site:{domain}",
-                        f"leadership team site:{domain}",
-                        f"management site:{domain}",
-                        f"our people site:{domain}",
-                        f"team site:{domain}",
-                        f"leadership site:{domain}",
-                        f"executives site:{domain}",
-                        f"board of directors site:{domain}",
-                        f"organization chart site:{domain}",
-                        # Add company name only for domain-specific searches
-                        f"{company_name} site:{domain}",
-                        f"{company_name} executive site:{domain}",
-                        f"{company_name} team site:{domain}",
-                        f"{company_name} management site:{domain}"
-                    ]
-                else:
-                    # Fallback to company name searches when no website provided
-                    queries = [
-                        # English queries - comprehensive
-                        f"{company_name} executive team leadership",
-                        f"{company_name} employees staff directory",
-                        f"{company_name} team members organization",
-                        f"{company_name} management positions",
-                        f"{company_name} company directory personnel",
-                        f"{company_name} board of directors",
-                        f"{company_name} employee list",
-                        f"{company_name} organization chart",
-                        # Fallback to common domains
-                        f"{company_name} executive team leadership site:{company_name}.com",
-                        f"{company_name} employees staff directory site:{company_name}.com",
-                        f"{company_name} team members about us site:{company_name}.com",
-                        f"{company_name} management team site:{company_name}.com",
-                        f"{company_name} company directory employees site:{company_name}.com",
-                        # Additional company domains
-                        f"{company_name} executive team leadership site:{company_name}.co.jp",
-                        f"{company_name} employees staff directory site:{company_name}.co.jp",
-                        f"{company_name} team members about us site:{company_name}.co.jp",
-                        f"{company_name} management team site:{company_name}.co.jp",
-                        f"{company_name} company directory employees site:{company_name}.co.jp"
-                    ]
-                
-                all_urls = []
-                all_results = []
-                search_progress = []
-                
-                # Process search queries with timeout and rate limiting
-                for query_idx, query in enumerate(queries):
-                    try:
-                        logger.info(f"Searching query {query_idx+1}/{len(queries)} for {company_name}: {query}")
-                        
-                        try:
-                            tavily_res = tavily.search(
-                                query=query,
-                                search_depth=config.tavily_search_depth,
-                                max_results=8  # Reduced for Vercel compatibility
-                            )
-                            urls = [item['url'] for item in tavily_res.get('results', [])]
-                            all_urls.extend(urls)
-                        except Exception as search_error:
-                            logger.error(f"Tavily search failed for query '{query}': {search_error}")
-                            urls = []
-                            tavily_res = {'results': []}
-                        
-                        # Log search progress
-                        search_progress.append({
-                            'query': query,
-                            'urls_found': len(urls),
-                            'urls': urls[:3]  # Show first 3 URLs
-                        })
-                        
-                        # Also collect the search result content for AI analysis
-                        for result in tavily_res.get('results', []):
-                            all_results.append({
-                                'title': result.get('title', ''),
-                                'content': result.get('content', ''),
-                                'url': result.get('url', '')
-                            })
-                        
-                        # Add small delay between searches to avoid rate limiting
-                        time.sleep(0.3)  # Reduced delay for faster processing
-                        
-                    except Exception as e:
-                        logger.error(f"Search query failed for '{query}': {e}")
-                        continue
-                
-                urls = list(dict.fromkeys(all_urls))[:15]  # Reduced from 20 to 15 URLs
-                logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls[:5]}...")  # Log first 5 URLs
+                urls = list(dict.fromkeys(all_urls))[:config.max_urls_per_company]
+                log_urls_found(company_name, urls, is_batch=True)
                 if not urls:
-                    result = {
-                        'company': company_name, 
-                        'error': 'No relevant pages found.',
-                        'search_progress': search_progress
-                    }
+                    result = handle_no_urls_found(company_name, search_progress, is_batch=True)
                     results.append(result)
                     continue
                 
                 # Prepare search results content for AI
-                search_content = ""
-                for i, result in enumerate(all_results[:30]):  # Reduced to 30 results
-                    search_content += f"\nResult {i+1}:\nTitle: {result['title']}\nURL: {result['url']}\nContent: {result['content'][:800]}...\n"
+                search_content = prepare_search_content(all_results)
                 
                 # Add website information to prompt if available
-                website_info = ""
-                if company_website:
-                    website_info = f"\nCompany Website: {company_website}\nDomain: {domain if domain else 'Not specified'}"
+                website_info = prepare_website_info(company_website, domain)
                 
-                # OpenAI prompt with function calling approach - optimized for Vercel
-                system_message = (
-                    "You are a highly skilled research assistant AI specializing in extracting employee data from web search results. "
-                    "YOUR PRIMARY GOAL: Find and extract QUALITY employee data with accurate names and titles. "
-                    "IMPORTANT: Focus on finding REAL employees with COMPLETE information. "
-                    "Search for ALL types of employees including: "
-                    "- Executives (CEO, CFO, CTO, Directors, Auditors, Executive Officers) "
-                    "- Senior Management (VPs, Senior Directors, Regional Heads) "
-                    "- Middle Management (Managers, Team Leads, Department Heads) "
-                    "- General Employees (Engineers, Analysts, Specialists, Coordinators, etc.) "
-                    "- Support Staff (HR, IT, Marketing, Sales, Operations, etc.) "
-                    "- Technical Staff (Developers, Designers, Researchers, etc.) "
-                    "- Administrative Staff (Assistants, Coordinators, etc.) "
-                    "- Board Members and Advisors "
-                    "Use the web_search tool to find comprehensive information about employees. "
-                    "After gathering data from multiple searches, format the complete, deduplicated list as a **strict CSV** table "
-                    "with the specified columns within a markdown code block (```csv ... ```), including the header row, with no extra text."
-                )
-                
-                user_message = STRICT_CSV_PROMPT.format(company=company_name)
-                if company_website:
-                    user_message += f"\n\nCompany Website: {company_website}"
-                    if domain:
-                        user_message += f"\nDomain: {domain}"
-                
-                # Add the search results to the user message so AI can analyze them
-                user_message += f"\n\nSEARCH RESULTS FOUND:\n{search_content}\n\n"
-                user_message += f"URLS FOUND: {urls}\n\n"
-                user_message += "IMPORTANT: Analyze the search results above and extract employee information from them. "
-                user_message += "Then perform additional web searches to find more employees. "
-                user_message += "Your goal is to find at least 15-25 employees from this company. "
-                user_message += "CRITICAL: Look at the URLs found and extract employee names, titles, and departments from the search result content. "
-                user_message += "If the search results contain employee information, extract it immediately. "
-                user_message += "Then use web_search to find additional employee data from those URLs and other sources."
-                
-                messages = [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ]
-                
-                logger.info(f"Sending request to OpenAI with function calling for {company_name}")
+                # Execute two-step process: gather data, then process into CSV
+                log_openai_request(company_name, is_batch=True)
                 
                 # Simplified approach with 3-minute timeout for Vercel
                 import threading
@@ -1087,7 +1066,7 @@ def upload_csv():
                 result_queue = queue.Queue()
                 def api_call():
                     try:
-                        result = make_api_request_with_tools(messages)
+                        result = execute_two_step_process(company_name, company_website, domain, search_content, urls)
                         result_queue.put(('success', result))
                     except Exception as e:
                         result_queue.put(('error', str(e)))
@@ -1105,73 +1084,33 @@ def upload_csv():
                     else:
                         raise Exception(result_data)
                 except queue.Empty:
-                    logger.error(f"OpenAI API call timed out for {company_name} after 3 minutes")
-                    result = {'company': company_name, 'error': 'OpenAI API call timed out after 3 minutes.'}
+                    logger.error(f"Two-step process timed out for {company_name} after 3 minutes")
+                    result = {'company': company_name, 'error': 'Two-step process timed out after 3 minutes.'}
                     results.append(result)
                     continue
                 except Exception as e:
-                    logger.error(f"Failed to get response from AI for {company_name}: {e}")
-                    result = {'company': company_name, 'error': f'Failed to get response from AI: {str(e)}'}
+                    logger.error(f"Failed to complete two-step process for {company_name}: {e}")
+                    result = {'company': company_name, 'error': f'Failed to complete two-step process: {str(e)}'}
                     results.append(result)
                     continue
                 
                 if not csv_content:
-                    logger.error(f"Failed to get response from AI after retries for {company_name}")
-                    result = {'company': company_name, 'error': 'Failed to get response from AI after retries.'}
+                    logger.error(f"Failed to complete two-step process for {company_name}")
+                    result = {'company': company_name, 'error': 'Failed to complete two-step process.'}
                     results.append(result)
                     continue
                 
-                logger.info(f"Received response from OpenAI, parsing CSV for {company_name}")
-                print(f"RAW AI OUTPUT for {company_name}:", csv_content)  # Debug logging
+                log_openai_response(company_name, is_batch=True)
                 df = parse_csv_from_ai_output(csv_content)
-                print(f"Parsed DataFrame shape for {company_name}: {df.shape}")  # Debug logging
-                print(f"DataFrame columns for {company_name}: {list(df.columns)}")  # Debug logging
+                log_processing_debug(company_name, csv_content, df, is_batch=True)
                 
-                result = {
-                    'company': company_name,
-                    'ai_response': csv_content,
-                    'parsed_successfully': not df.empty,
-                    'rows_found': len(df) if not df.empty else 0,
-                    'search_progress': search_progress,
-                    'total_urls_found': len(urls),
-                    'unique_urls': urls
-                }
-                
-                # Debug: Check if result is properly formatted
-                print(f"RESULT STRUCTURE for {company_name}:")
-                print(f"  - Company: {result['company']}")
-                print(f"  - Parsed successfully: {result['parsed_successfully']}")
-                print(f"  - Rows found: {result['rows_found']}")
-                print(f"  - Search progress length: {len(result['search_progress'])}")
-                print(f"  - Total URLs found: {result['total_urls_found']}")
-                
-                if not df.empty:
-                    # Save parsed CSV
-                    filename = f"{company_name}_{uuid.uuid4().hex[:8]}.csv"
-                    filepath = os.path.join(GENERATED_DIR, filename)
-                    try:
-                        df.to_csv(filepath, index=False, encoding='utf-8-sig')
-                        result['download_url'] = f'/download/{filename}'
-                        logger.info(f"Successfully processed {company_name}: {len(df)} employees found")
-                        
-                    except Exception as e:
-                        logger.error(f"Failed to save parsed CSV {filename}: {e}")
-                else:
-                    logger.warning(f"No employee data parsed for {company_name}")
-                    # Save the raw AI response as a .csv file for download
-                    raw_filename = f"{company_name}_raw_{uuid.uuid4().hex[:8]}.csv"
-                    raw_filepath = os.path.join(GENERATED_DIR, raw_filename)
-                    try:
-                        with open(raw_filepath, 'w', encoding='utf-8-sig') as f:
-                            f.write(csv_content)
-                        result['raw_download_url'] = f'/download/{raw_filename}'
-                    except Exception as e:
-                        logger.error(f"Failed to save raw file {raw_filename}: {e}")
+                # Create standardized result dictionary for batch processing
+                result = create_result_dict(company_name, csv_content, df, search_progress, urls, is_batch=True)
                 
                 results.append(result)
                 
             except Exception as e:
-                logger.error(f"Error processing {company_name}: {e}")
+                log_processing_error(company_name, e, is_batch=True)
                 result = {
                     'company': company_name,
                     'error': str(e),
