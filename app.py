@@ -99,8 +99,8 @@ class Config:
                 'メールアドレスに使用される可能性が高いドメイン'
             ]
         
-        # Adjust file paths for Vercel environment
-        if os.environ.get('VERCEL'):
+        # Adjust file paths for Vercel and Railway environment
+        if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
             self.generated_dir = '/tmp'
             self.log_filename = '/tmp/lead_generation.log'
 
@@ -127,9 +127,9 @@ tavily = TavilyClient(TAVILY_API_KEY)
 
 app = Flask(__name__)
 
-# For Vercel deployment, use temporary storage
-if os.environ.get('VERCEL'):
-    # In Vercel environment, use /tmp for temporary files
+# For Railway deployment, use temporary storage
+if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+    # In Vercel/Railway environment, use /tmp for temporary files
     GENERATED_DIR = '/tmp'
 else:
     # Local development
@@ -1038,8 +1038,10 @@ def download(filename):
     return send_from_directory(GENERATED_DIR, filename, as_attachment=True)
 
 
-# For Vercel deployment
+# For Railway deployment
 app.debug = False
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    # Get port from Railway environment variable, default to 5000 for local development
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False) 
