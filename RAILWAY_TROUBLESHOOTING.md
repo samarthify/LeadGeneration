@@ -145,6 +145,12 @@ Railway automatically sets:
 - Fixed by downgrading to tavily-python==0.2.8
 - Check if TAVILY_API_KEY is set correctly
 
+### "Healthcheck failed" / "Service unavailable"
+- App is not starting properly
+- Check Railway logs for startup errors
+- Verify environment variables are set
+- Test locally with: `python test_startup.py`
+
 ## Getting Help
 
 1. **Check Railway Logs**: Always start here

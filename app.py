@@ -121,8 +121,12 @@ except Exception as e:
     logger.addHandler(console_handler)
     logger.warning(f"Failed to setup logging with file handler: {e}")
 
-# Initialize clients
-openai.api_key = OPENAI_API_KEY
+# Initialize clients with error handling
+try:
+    openai.api_key = OPENAI_API_KEY
+    logger.info("OpenAI client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize OpenAI client: {e}")
 
 # Initialize Tavily client with error handling
 tavily = None
@@ -505,19 +509,39 @@ def parse_csv_from_ai_output(raw_ai_output):
 def index():
     return render_template('index.html')
 
+@app.route('/api/status')
+def api_status():
+    """Simple status endpoint for health checks."""
+    return jsonify({'status': 'ok', 'message': 'Lead Generation API is running'})
+
 @app.route('/health')
 def health():
     """Health check endpoint for Railway."""
-    return jsonify({
-        'status': 'healthy', 
-        'timestamp': time.time(),
-        'environment': {
-            'railway': bool(os.environ.get('RAILWAY')),
-            'vercel': bool(os.environ.get('VERCEL')),
-            'port': os.environ.get('PORT', '5000'),
-            'generated_dir': GENERATED_DIR
+    try:
+        # Basic health checks
+        checks = {
+            'app_running': True,
+            'openai_key_set': bool(OPENAI_API_KEY),
+            'tavily_key_set': bool(TAVILY_API_KEY),
+            'environment': {
+                'railway': bool(os.environ.get('RAILWAY')),
+                'vercel': bool(os.environ.get('VERCEL')),
+                'port': os.environ.get('PORT', '5000'),
+                'generated_dir': GENERATED_DIR
+            }
         }
-    })
+        
+        return jsonify({
+            'status': 'healthy', 
+            'timestamp': time.time(),
+            'checks': checks
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': time.time()
+        }), 500
 
 @app.route('/test-sse')
 def test_sse():
@@ -1139,4 +1163,16 @@ app.debug = False
 if __name__ == '__main__':
     # Get port from Railway environment variable, default to 5000 for local development
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    
+    # Log startup information
+    logger.info(f"Starting Flask app on port {port}")
+    logger.info(f"Environment: Railway={bool(os.environ.get('RAILWAY'))}, Vercel={bool(os.environ.get('VERCEL'))}")
+    logger.info(f"Generated directory: {GENERATED_DIR}")
+    logger.info(f"OpenAI API key set: {bool(OPENAI_API_KEY)}")
+    logger.info(f"Tavily API key set: {bool(TAVILY_API_KEY)}")
+    
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except Exception as e:
+        logger.error(f"Failed to start Flask app: {e}")
+        raise 
