@@ -130,25 +130,55 @@ except Exception as e:
 
 # Initialize Tavily client with error handling
 tavily = None
+
+# Check what version of tavily is installed
 try:
-    tavily = TavilyClient(TAVILY_API_KEY)
-    logger.info("Tavily client initialized successfully")
+    import tavily
+    logger.info(f"Tavily package version: {getattr(tavily, '__version__', 'unknown')}")
+    logger.info(f"Tavily package path: {tavily.__file__}")
+except ImportError:
+    logger.error("Tavily package not found")
 except Exception as e:
-    logger.error(f"Failed to initialize Tavily client: {e}")
+    logger.error(f"Error checking tavily package: {e}")
+
+try:
+    logger.info(f"Attempting to initialize TavilyClient with API key: {TAVILY_API_KEY[:10]}...")
+    tavily = TavilyClient(TAVILY_API_KEY)
+    logger.info("Tavily client initialized successfully with TavilyClient")
+except Exception as e:
+    logger.error(f"Failed to initialize Tavily client with TavilyClient: {e}")
+    logger.error(f"Error type: {type(e).__name__}")
+    logger.error(f"Error details: {str(e)}")
+    
     # Try alternative initialization method
     try:
+        logger.info("Attempting to import Client from tavily")
         from tavily import Client
+        logger.info("Successfully imported Client from tavily")
         tavily = Client(api_key=TAVILY_API_KEY)
-        logger.info("Tavily client initialized with alternative method")
+        logger.info("Tavily client initialized successfully with Client")
     except Exception as e2:
-        logger.error(f"Failed to initialize Tavily client with alternative method: {e2}")
-        # Create a dummy client that returns empty results
-        class DummyTavilyClient:
-            def search(self, **kwargs):
-                logger.warning("Using dummy Tavily client - no search results will be returned")
-                return {'results': []}
-        tavily = DummyTavilyClient()
-        logger.warning("Using dummy Tavily client due to initialization failure")
+        logger.error(f"Failed to initialize Tavily client with Client: {e2}")
+        logger.error(f"Error type: {type(e2).__name__}")
+        logger.error(f"Error details: {str(e2)}")
+        
+        # Try with minimal parameters
+        try:
+            logger.info("Attempting TavilyClient with minimal parameters")
+            tavily = TavilyClient(api_key=TAVILY_API_KEY)
+            logger.info("Tavily client initialized with minimal parameters")
+        except Exception as e3:
+            logger.error(f"Failed to initialize Tavily client with minimal parameters: {e3}")
+            logger.error(f"Error type: {type(e3).__name__}")
+            logger.error(f"Error details: {str(e3)}")
+            
+            # Create a dummy client that returns empty results
+            class DummyTavilyClient:
+                def search(self, **kwargs):
+                    logger.warning("Using dummy Tavily client - no search results will be returned")
+                    return {'results': []}
+            tavily = DummyTavilyClient()
+            logger.warning("Using dummy Tavily client due to initialization failure")
 
 app = Flask(__name__)
 
@@ -513,6 +543,32 @@ def index():
 def api_status():
     """Simple status endpoint for health checks."""
     return jsonify({'status': 'ok', 'message': 'Lead Generation API is running'})
+
+@app.route('/api/packages')
+def check_packages():
+    """Check installed package versions."""
+    import pkg_resources
+    import sys
+    
+    packages = {}
+    packages_to_check = ['tavily-python', 'openai', 'flask', 'requests', 'python-dotenv', 'pandas']
+    
+    for package in packages_to_check:
+        try:
+            version = pkg_resources.get_distribution(package).version
+            packages[package] = version
+        except Exception as e:
+            packages[package] = f"ERROR: {e}"
+    
+    return jsonify({
+        'python_version': sys.version,
+        'packages': packages,
+        'environment': {
+            'railway': bool(os.environ.get('RAILWAY')),
+            'vercel': bool(os.environ.get('VERCEL')),
+            'port': os.environ.get('PORT', '5000')
+        }
+    })
 
 @app.route('/health')
 def health():
