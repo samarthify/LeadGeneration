@@ -825,15 +825,14 @@ def upload_csv():
         # In a production app, you'd store this in Redis or similar
         
         def generate():
-            try:
-                # Send initial heartbeat with proper formatting
-                initial_data = json.dumps({'status': 'started', 'total_companies': len(companies_data)})
-                yield f"data: {initial_data}\n\n"
-                
-                # Force flush to ensure data is sent immediately
-                import sys
-                if hasattr(sys.stdout, 'flush'):
-                    sys.stdout.flush()
+            # Send initial heartbeat with proper formatting
+            initial_data = json.dumps({'status': 'started', 'total_companies': len(companies_data)})
+            yield f"data: {initial_data}\n\n"
+            
+            # Force flush to ensure data is sent immediately
+            import sys
+            if hasattr(sys.stdout, 'flush'):
+                sys.stdout.flush()
             
             for i, company_data in enumerate(companies_data):
                 company_name = company_data['name']
