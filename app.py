@@ -100,7 +100,9 @@ class Config:
             ]
         
         # Adjust file paths for Vercel and Railway environment
-        if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+        # Railway doesn't always set RAILWAY env var, so check for PORT and other indicators
+        is_railway = bool(os.environ.get('RAILWAY')) or bool(os.environ.get('PORT')) or 'railway' in os.environ.get('HOSTNAME', '').lower()
+        if os.environ.get('VERCEL') or is_railway:
             self.generated_dir = '/tmp'
             self.log_filename = '/tmp/lead_generation.log'
 
@@ -183,7 +185,9 @@ except Exception as e:
 app = Flask(__name__)
 
 # For Railway deployment, use temporary storage
-if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+# Railway doesn't always set RAILWAY env var, so check for PORT and other indicators
+is_railway = bool(os.environ.get('RAILWAY')) or bool(os.environ.get('PORT')) or 'railway' in os.environ.get('HOSTNAME', '').lower()
+if os.environ.get('VERCEL') or is_railway:
     # In Vercel/Railway environment, use /tmp for temporary files
     GENERATED_DIR = '/tmp'
 else:
@@ -1220,8 +1224,9 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     
     # Log startup information
+    is_railway = bool(os.environ.get('RAILWAY')) or bool(os.environ.get('PORT')) or 'railway' in os.environ.get('HOSTNAME', '').lower()
     logger.info(f"Starting Flask app on port {port}")
-    logger.info(f"Environment: Railway={bool(os.environ.get('RAILWAY'))}, Vercel={bool(os.environ.get('VERCEL'))}")
+    logger.info(f"Environment: Railway={is_railway}, Vercel={bool(os.environ.get('VERCEL'))}")
     logger.info(f"Generated directory: {GENERATED_DIR}")
     logger.info(f"OpenAI API key set: {bool(OPENAI_API_KEY)}")
     logger.info(f"Tavily API key set: {bool(TAVILY_API_KEY)}")
