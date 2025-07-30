@@ -123,7 +123,28 @@ except Exception as e:
 
 # Initialize clients
 openai.api_key = OPENAI_API_KEY
-tavily = TavilyClient(TAVILY_API_KEY)
+
+# Initialize Tavily client with error handling
+tavily = None
+try:
+    tavily = TavilyClient(TAVILY_API_KEY)
+    logger.info("Tavily client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Tavily client: {e}")
+    # Try alternative initialization method
+    try:
+        from tavily import Client
+        tavily = Client(api_key=TAVILY_API_KEY)
+        logger.info("Tavily client initialized with alternative method")
+    except Exception as e2:
+        logger.error(f"Failed to initialize Tavily client with alternative method: {e2}")
+        # Create a dummy client that returns empty results
+        class DummyTavilyClient:
+            def search(self, **kwargs):
+                logger.warning("Using dummy Tavily client - no search results will be returned")
+                return {'results': []}
+        tavily = DummyTavilyClient()
+        logger.warning("Using dummy Tavily client due to initialization failure")
 
 app = Flask(__name__)
 
@@ -200,12 +221,16 @@ def make_api_request_with_tools(messages, max_retries=None, retry_count=0):
                             if site:
                                 query = f"{query} site:{site}"
                             
-                            # Execute Tavily search
-                            search_results = tavily.search(
-                                query=query,
-                                search_depth=config.tavily_search_depth,
-                                max_results=config.tavily_max_results
-                            ).get('results', [])
+                            # Execute Tavily search with error handling
+                            try:
+                                search_results = tavily.search(
+                                    query=query,
+                                    search_depth=config.tavily_search_depth,
+                                    max_results=config.tavily_max_results
+                                ).get('results', [])
+                            except Exception as search_error:
+                                logger.error(f"Tavily search failed: {search_error}")
+                                search_results = []
                             
                             # Format results for the model
                             formatted_results = "\n".join([
@@ -480,6 +505,45 @@ def parse_csv_from_ai_output(raw_ai_output):
 def index():
     return render_template('index.html')
 
+@app.route('/health')
+def health():
+    """Health check endpoint for Railway."""
+    return jsonify({
+        'status': 'healthy', 
+        'timestamp': time.time(),
+        'environment': {
+            'railway': bool(os.environ.get('RAILWAY')),
+            'vercel': bool(os.environ.get('VERCEL')),
+            'port': os.environ.get('PORT', '5000'),
+            'generated_dir': GENERATED_DIR
+        }
+    })
+
+@app.route('/test-sse')
+def test_sse():
+    """Test SSE streaming endpoint for debugging."""
+    def generate():
+        yield f"data: {json.dumps({'message': 'SSE test started'})}\n\n"
+        time.sleep(1)
+        yield f"data: {json.dumps({'message': 'SSE test message 1'})}\n\n"
+        time.sleep(1)
+        yield f"data: {json.dumps({'message': 'SSE test message 2'})}\n\n"
+        time.sleep(1)
+        yield f"data: {json.dumps({'message': 'SSE test completed'})}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'X-Accel-Buffering': 'no',
+        'Transfer-Encoding': 'chunked',
+        'Content-Type': 'text/event-stream; charset=utf-8'
+    })
+
 @app.route('/generate', methods=['POST'], strict_slashes=False)
 def generate():
     data = request.get_json()
@@ -565,13 +629,18 @@ def generate():
         for i, query in enumerate(queries):
             try:
                 logger.info(f"Searching query {i+1}/{len(queries)}: {query}")
-                tavily_res = tavily.search(
-                    query=query,
-                    search_depth=config.tavily_search_depth,
-                    max_results=config.tavily_max_results
-                )
-                urls = [item['url'] for item in tavily_res.get('results', [])]
-                all_urls.extend(urls)
+                try:
+                    tavily_res = tavily.search(
+                        query=query,
+                        search_depth=config.tavily_search_depth,
+                        max_results=config.tavily_max_results
+                    )
+                    urls = [item['url'] for item in tavily_res.get('results', [])]
+                    all_urls.extend(urls)
+                except Exception as search_error:
+                    logger.error(f"Tavily search failed for query '{query}': {search_error}")
+                    urls = []
+                    tavily_res = {'results': []}
                 
                 # Log search progress
                 search_progress.append({
@@ -690,8 +759,18 @@ def generate():
         logger.error(f"Error processing {company_name}: {e}")
         return jsonify({'error': f'An error occurred: {str(e)}'}), 500
 
-@app.route('/upload', methods=['POST'], strict_slashes=False)
+@app.route('/upload', methods=['POST', 'OPTIONS'], strict_slashes=False)
 def upload_csv():
+    # Handle CORS preflight requests
+    if request.method == 'OPTIONS':
+        return Response('', status=200, headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Max-Age': '86400'
+        })
+    
+    # Handle actual POST request
     if 'file' not in request.files:
         return jsonify({'error': 'No file part in the request.'}), 400
     file = request.files['file']
@@ -722,8 +801,15 @@ def upload_csv():
         # In a production app, you'd store this in Redis or similar
         
         def generate():
-            # Send initial heartbeat
-            yield f"data: {json.dumps({'status': 'started', 'total_companies': len(companies_data)})}\n\n"
+            try:
+                # Send initial heartbeat with proper formatting
+                initial_data = json.dumps({'status': 'started', 'total_companies': len(companies_data)})
+                yield f"data: {initial_data}\n\n"
+                
+                # Force flush to ensure data is sent immediately
+                import sys
+                if hasattr(sys.stdout, 'flush'):
+                    sys.stdout.flush()
             
             for i, company_data in enumerate(companies_data):
                 company_name = company_data['name']
@@ -808,13 +894,18 @@ def upload_csv():
                         try:
                             logger.info(f"Searching query {query_idx+1}/{len(queries)} for {company_name}: {query}")
                             
-                            tavily_res = tavily.search(
-                                query=query,
-                                search_depth=config.tavily_search_depth,
-                                max_results=10  # Increased from 5 to 10 results per query
-                            )
-                            urls = [item['url'] for item in tavily_res.get('results', [])]
-                            all_urls.extend(urls)
+                            try:
+                                tavily_res = tavily.search(
+                                    query=query,
+                                    search_depth=config.tavily_search_depth,
+                                    max_results=10  # Increased from 5 to 10 results per query
+                                )
+                                urls = [item['url'] for item in tavily_res.get('results', [])]
+                                all_urls.extend(urls)
+                            except Exception as search_error:
+                                logger.error(f"Tavily search failed for query '{query}': {search_error}")
+                                urls = []
+                                tavily_res = {'results': []}
                             
                             # Log search progress
                             search_progress.append({
@@ -1022,12 +1113,16 @@ def upload_csv():
             yield f"data: {json.dumps({'status': 'complete'})}\n\n"
         
         return Response(generate(), mimetype='text/event-stream', headers={
-            'Cache-Control': 'no-cache',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
             'Connection': 'keep-alive',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Cache-Control',
+            'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'X-Accel-Buffering': 'no',
-            'Transfer-Encoding': 'chunked'
+            'Transfer-Encoding': 'chunked',
+            'Content-Type': 'text/event-stream; charset=utf-8'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

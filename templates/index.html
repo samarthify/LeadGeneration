@@ -742,29 +742,36 @@
                     }
                 });
                 
+                // Handle streaming response with better error handling
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    displayError(errorData.error || 'Failed to process CSV batch.');
-                    return;
-                }
-                
-                                // Handle streaming response with better error handling
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to start batch processing');
+                    try {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to start batch processing');
+                    } catch (e) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
                 }
                 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let lastActivity = Date.now();
+                const TIMEOUT = 300000; // 5 minutes timeout
                 
                 try {
                     while (true) {
+                        // Check for timeout
+                        if (Date.now() - lastActivity > TIMEOUT) {
+                            throw new Error('Connection timeout. The server may be processing a large batch.');
+                        }
+                        
                         const { done, value } = await reader.read();
                         if (done) {
                             console.log('SSE stream completed');
                             break;
                         }
+                        
+                        lastActivity = Date.now(); // Update activity timestamp
                         
                         buffer += decoder.decode(value, { stream: true });
                         const lines = buffer.split('\n');
@@ -835,11 +842,22 @@
                  
             } catch (error) {
                 console.error('Batch processing error:', error);
-                if (error.message.includes('message channel closed') || error.message.includes('Connection was interrupted')) {
-                    displayError('Connection was interrupted. The server may be processing a large batch. Please wait a moment and try again.');
-                } else {
-                    displayError(`Network error: ${error.message}`);
+                let errorMessage = error.message;
+                
+                // Provide more specific error messages for common Railway issues
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = 'Network connection failed. Please check your internet connection and try again.';
+                } else if (error.message.includes('timeout') || error.message.includes('Connection timeout')) {
+                    errorMessage = 'The request timed out. This may happen with large batches. Please try with fewer companies or wait a moment and try again.';
+                } else if (error.message.includes('message channel closed') || error.message.includes('Connection was interrupted')) {
+                    errorMessage = 'Connection was interrupted. The server may be processing a large batch. Please wait a moment and try again.';
+                } else if (error.message.includes('HTTP 500') || error.message.includes('Internal Server Error')) {
+                    errorMessage = 'Server error occurred. Please try again in a few moments.';
+                } else if (error.message.includes('HTTP 413') || error.message.includes('Payload Too Large')) {
+                    errorMessage = 'The CSV file is too large. Please try with fewer companies (max 100).';
                 }
+                
+                displayError(`Batch processing failed: ${errorMessage}`);
                 loading.style.display = 'none';
                 csvUploadBtn.disabled = false;
                 csvUploadBtn.textContent = 'Upload & Generate for All Companies';
