@@ -388,8 +388,8 @@ def extract_employee_data_from_urls(urls, company_name):
 # Comprehensive prompt for employee data extraction
 STRICT_CSV_PROMPT = (
     "Find and list employees for the company '{company}'. "
-    "YOUR PRIMARY GOAL: Extract AS MANY EMPLOYEES AS POSSIBLE from this company. "
-    "IMPORTANT: You must perform MULTIPLE comprehensive web searches to find different types of employees. "
+    "YOUR PRIMARY GOAL: Extract QUALITY employee data with accurate names and titles. "
+    "IMPORTANT: Focus on finding REAL employees with COMPLETE information. "
     "Search for ALL types of employees including: "
     "- Executives (CEO, CFO, CTO, Directors, Auditors, Executive Officers) "
     "- Senior Management (VPs, Senior Directors, Regional Heads) "
@@ -398,29 +398,29 @@ STRICT_CSV_PROMPT = (
     "- Support Staff (HR, IT, Marketing, Sales, Operations, etc.) "
     "- Technical Staff (Developers, Designers, Researchers, etc.) "
     "- Administrative Staff (Assistants, Coordinators, etc.) "
-    "- Contractors and Consultants "
     "- Board Members and Advisors "
-    "- Recent Hires and New Employees "
     "SEARCH STRATEGY - Perform these searches in order: "
     "1. Search for executives and leadership team "
     "2. Search for middle management and department heads "
     "3. Search for technical staff and engineers "
     "4. Search for support staff and administrative roles "
-    "5. Search for all employees and staff directory "
-    "6. Search for recent hires and new employees "
-    "7. Search for company team pages and about us sections "
-    "8. Search for LinkedIn profiles and professional networks "
+    "5. Search for company team pages and about us sections "
     "Search multiple reliable sources such as official company websites (e.g., 'About Us', 'Leadership', 'Team', 'Our People', 'Careers', 'Meet the Team' pages), "
-    "press releases, reputable business news articles, and professional networking sites (if accessible via search). "
-    "List as many relevant employees as you can find, including those from international offices or subsidiary companies part of the group. "
-    "AIM TO FIND 50+ EMPLOYEES if available. "
+    "press releases, and reputable business news articles. "
+    "QUALITY REQUIREMENTS: "
+    "- ONLY include employees with COMPLETE names (first AND last name) "
+    "- NO duplicate entries "
+    "- NO entries with missing names "
+    "- NO generic titles like 'Administrative Assistant' without specific names "
+    "- NO interns or temporary positions unless they have specific names "
+    "- MAXIMUM 30-40 QUALITY entries "
     "For each employee, extract their department and precise job title if available. "
     "Provide names in both native script (if found) and Roman alphabet. "
-    "After collecting comprehensive data from multiple searches, carefully deduplicate entries based on their Romanized names (lowercase). "
-    "Determine the most likely primary email domain for employees of this company. If regional domains exist (e.g., @us.company.com, @uk.company.com), prioritize the global domain if unsure, or list regional domains if clearly associated with a specific employee location found in the data. "
+    "After collecting data from multiple searches, carefully deduplicate entries based on their Romanized names (lowercase). "
+    "Determine the most likely primary email domain for employees of this company. "
     "Finally, format the complete, deduplicated list as a **strict CSV** table with the following Japanese columns, ensuring data accuracy and consistency:\n"
     "会社名, 部署, 役職, 姓, 名, 姓（小文字ローマ字）, 名（小文字ローマ字）, メールアドレスに使用される可能性が高いドメイン\n"
-    "**IMPORTANT:** Ensure that no commas are included *within* any of the data fields (e.g., Department or Job title). If a department or job title contains a comma in the source, remove or replace the comma (e.g., with a semicolon or space) in the output CSV field.\n"
+    "**IMPORTANT:** Ensure that no commas are included *within* any of the data fields. If a department or job title contains a comma in the source, remove or replace the comma (e.g., with a semicolon or space) in the output CSV field.\n"
     "If a field is missing, leave the corresponding cell empty. "
     "If a job title is not clearly available from the source, use the department name or the best possible approximation. Ensure all Romanized names are in lowercase. "
     "**CRITICAL:** Output ONLY the CSV data within a markdown code block (```csv ... ```), with the header row first, then data rows. No extra text outside the code block."
@@ -528,6 +528,25 @@ def parse_csv_from_ai_output(raw_ai_output):
                 if first_name_col in df.columns and last_name_col in df.columns:
                     df = df.dropna(subset=[first_name_col, last_name_col], how='all')
                     break
+            
+            # Additional data quality filtering
+            if not df.empty:
+                # Remove rows with generic titles without specific names
+                generic_titles = ['administrative assistant', 'intern', 'coordinator', 'assistant']
+                if 'Job title' in df.columns:
+                    df = df[~df['Job title'].str.lower().isin(generic_titles)]
+                if '役職' in df.columns:
+                    df = df[~df['役職'].str.lower().isin(generic_titles)]
+                
+                # Remove duplicate entries based on romanized names
+                if 'Last name (lowercase Roman letters)' in df.columns and 'First name (lowercase Roman letters)' in df.columns:
+                    df = df.drop_duplicates(subset=['Last name (lowercase Roman letters)', 'First name (lowercase Roman letters)'])
+                if '姓（小文字ローマ字）' in df.columns and '名（小文字ローマ字）' in df.columns:
+                    df = df.drop_duplicates(subset=['姓（小文字ローマ字）', '名（小文字ローマ字）'])
+                
+                # Limit to maximum 40 entries
+                if len(df) > 40:
+                    df = df.head(40)
             
             return df
         else:
