@@ -895,337 +895,300 @@ def upload_csv():
         
         if not companies_data:
             return jsonify({'error': 'No company names found in the CSV.'}), 400
-        if len(companies_data) > 100:
-            return jsonify({'error': 'CSV contains more than 100 companies. Please split into smaller batches.'}), 400
+        if len(companies_data) > 50:  # Reduced limit for Vercel compatibility
+            return jsonify({'error': 'CSV contains more than 50 companies. Please split into smaller batches.'}), 400
         
-        # Store companies in session or temporary storage
-        session_id = str(uuid.uuid4())
-        # For simplicity, we'll process immediately and stream results
-        # In a production app, you'd store this in Redis or similar
+        # Process companies sequentially without streaming
+        results = []
+        total_companies = len(companies_data)
         
-        def generate():
-            # Send initial heartbeat with proper formatting
-            initial_data = json.dumps({'status': 'started', 'total_companies': len(companies_data)})
-            yield f"data: {initial_data}\n\n"
+        for i, company_data in enumerate(companies_data):
+            company_name = company_data['name']
+            company_website = company_data['website']
             
-            # Force flush to ensure data is sent immediately
-            import sys
-            if hasattr(sys.stdout, 'flush'):
-                sys.stdout.flush()
+            logger.info(f"Processing company {i+1}/{total_companies}: {company_name}")
             
-            for i, company_data in enumerate(companies_data):
-                company_name = company_data['name']
-                company_website = company_data['website']
-                
-                # Send progress update
-                yield f"data: {json.dumps({'status': 'processing', 'company': company_name, 'progress': f'{i+1}/{len(companies_data)}'})}\n\n"
-                
-                try:
-                    logger.info(f"Processing company {i+1}/{len(companies_data)}: {company_name}")
-                    
-                    # Extract domain from website if provided
-                    domain = None
-                    if company_website:
-                        try:
-                            from urllib.parse import urlparse
-                            parsed_url = urlparse(company_website)
-                            domain = parsed_url.netloc
-                            if domain.startswith('www.'):
-                                domain = domain[4:]
-                        except Exception as e:
-                            logger.error(f"Failed to parse website URL: {e}")
-                    
-                    # Comprehensive search queries - full set for maximum results
-                    queries = []
-                    
-                    if domain:
-                        # When website is provided, prioritize domain-specific searches
-                        queries = [
-                            f"executive team leadership site:{domain}",
-                            f"employees staff directory site:{domain}",
-                            f"team members about us site:{domain}",
-                            f"management team site:{domain}",
-                            f"company directory employees site:{domain}",
-                            f"about us team site:{domain}",
-                            f"leadership team site:{domain}",
-                            f"management site:{domain}",
-                            f"our people site:{domain}",
-                            f"team site:{domain}",
-                            f"leadership site:{domain}",
-                            f"executives site:{domain}",
-                            f"board of directors site:{domain}",
-                            f"organization chart site:{domain}",
-                            # Add company name only for domain-specific searches
-                            f"{company_name} site:{domain}",
-                            f"{company_name} executive site:{domain}",
-                            f"{company_name} team site:{domain}",
-                            f"{company_name} management site:{domain}"
-                        ]
-                    else:
-                        # Fallback to company name searches when no website provided
-                        queries = [
-                            # English queries - comprehensive
-                            f"{company_name} executive team leadership",
-                            f"{company_name} employees staff directory",
-                            f"{company_name} team members organization",
-                            f"{company_name} management positions",
-                            f"{company_name} company directory personnel",
-                            f"{company_name} board of directors",
-                            f"{company_name} employee list",
-                            f"{company_name} organization chart",
-                            # Fallback to common domains
-                            f"{company_name} executive team leadership site:{company_name}.com",
-                            f"{company_name} employees staff directory site:{company_name}.com",
-                            f"{company_name} team members about us site:{company_name}.com",
-                            f"{company_name} management team site:{company_name}.com",
-                            f"{company_name} company directory employees site:{company_name}.com",
-                            # Additional company domains
-                            f"{company_name} executive team leadership site:{company_name}.co.jp",
-                            f"{company_name} employees staff directory site:{company_name}.co.jp",
-                            f"{company_name} team members about us site:{company_name}.co.jp",
-                            f"{company_name} management team site:{company_name}.co.jp",
-                            f"{company_name} company directory employees site:{company_name}.co.jp"
-                        ]
-                    
-                    all_urls = []
-                    all_results = []
-                    search_progress = []
-                    
-                    # Process search queries with timeout and rate limiting
-                    for query_idx, query in enumerate(queries):
-                        try:
-                            logger.info(f"Searching query {query_idx+1}/{len(queries)} for {company_name}: {query}")
-                            
-                            try:
-                                tavily_res = tavily.search(
-                                    query=query,
-                                    search_depth=config.tavily_search_depth,
-                                    max_results=10  # Increased from 5 to 10 results per query
-                                )
-                                urls = [item['url'] for item in tavily_res.get('results', [])]
-                                all_urls.extend(urls)
-                            except Exception as search_error:
-                                logger.error(f"Tavily search failed for query '{query}': {search_error}")
-                                urls = []
-                                tavily_res = {'results': []}
-                            
-                            # Log search progress
-                            search_progress.append({
-                                'query': query,
-                                'urls_found': len(urls),
-                                'urls': urls[:3]  # Show first 3 URLs
-                            })
-                            
-                            # Also collect the search result content for AI analysis
-                            for result in tavily_res.get('results', []):
-                                all_results.append({
-                                    'title': result.get('title', ''),
-                                    'content': result.get('content', ''),
-                                    'url': result.get('url', '')
-                                })
-                            
-                            # Add small delay between searches to avoid rate limiting
-                            time.sleep(0.5)
-                            
-                        except Exception as e:
-                            logger.error(f"Search query failed for '{query}': {e}")
-                            continue
-                    
-                    urls = list(dict.fromkeys(all_urls))[:20]  # Increased from 8 to 20 URLs
-                    logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls[:5]}...")  # Log first 5 URLs
-                    if not urls:
-                        result = {
-                            'company': company_name, 
-                            'error': 'No relevant pages found.',
-                            'search_progress': search_progress
-                        }
-                        yield f"data: {json.dumps(result)}\n\n"
-                        continue
-                    
-                    # Prepare search results content for AI
-                    search_content = ""
-                    for i, result in enumerate(all_results[:50]):  # Increased to 50 results
-                        search_content += f"\nResult {i+1}:\nTitle: {result['title']}\nURL: {result['url']}\nContent: {result['content'][:1000]}...\n"
-                    
-                    # Add website information to prompt if available
-                    website_info = ""
-                    if company_website:
-                        website_info = f"\nCompany Website: {company_website}\nDomain: {domain if domain else 'Not specified'}"
-                    
-                    # OpenAI prompt with function calling approach
-                    system_message = (
-                        "You are a highly skilled research assistant AI specializing in extracting MAXIMUM employee data from web search results. "
-                        "YOUR PRIMARY GOAL: Find and extract AS MANY EMPLOYEES AS POSSIBLE from the company. "
-                        "IMPORTANT: You must perform MULTIPLE comprehensive web searches to find different types of employees. "
-                        "Use the web_search tool to find comprehensive information about ALL types of employees including: "
-                        "- Executives and Senior Management (CEO, CFO, CTO, Directors, VPs, etc.) "
-                        "- Middle Management and Team Leads (Managers, Supervisors, etc.) "
-                        "- General Employees and Technical Staff (Engineers, Developers, Analysts, etc.) "
-                        "- Support Staff and Administrative Staff (HR, IT, Marketing, Sales, Operations, etc.) "
-                        "- Entry-level and Junior Staff "
-                        "- Contractors and Consultants "
-                        "- Board Members and Advisors "
-                        "SEARCH STRATEGY: "
-                        "1. Search for executives and leadership team "
-                        "2. Search for middle management and department heads "
-                        "3. Search for technical staff and engineers "
-                        "4. Search for support staff and administrative roles "
-                        "5. Search for all employees and staff directory "
-                        "6. Search for recent hires and new employees "
-                        "7. Search for company team pages and about us sections "
-                        "8. Search for LinkedIn profiles and professional networks "
-                        "Be EXTREMELY thorough and extract as many employees as possible from each source. "
-                        "Aim to find 50+ employees per company if available. "
-                        "MINIMUM TARGET: Find at least 20-30 employees per company. "
-                        "If you find fewer than 15 employees, continue searching for more sources. "
-                        "After gathering data from multiple searches, format the complete, deduplicated list as a **strict CSV** table "
-                        "with the specified columns within a markdown code block (```csv ... ```), including the header row, with no extra text."
-                    )
-                    
-                    user_message = STRICT_CSV_PROMPT.format(company=company_name)
-                    if company_website:
-                        user_message += f"\n\nCompany Website: {company_website}"
-                        if domain:
-                            user_message += f"\nDomain: {domain}"
-                    
-                    # Add the search results to the user message so AI can analyze them
-                    user_message += f"\n\nSEARCH RESULTS FOUND:\n{search_content}\n\n"
-                    user_message += f"URLS FOUND: {urls}\n\n"
-                    user_message += "IMPORTANT: Analyze the search results above and extract employee information from them. "
-                    user_message += "Then perform additional web searches to find more employees. "
-                    user_message += "Your goal is to find at least 20-30 employees from this company. "
-                    user_message += "CRITICAL: Look at the URLs found and extract employee names, titles, and departments from the search result content. "
-                    user_message += "If the search results contain employee information, extract it immediately. "
-                    user_message += "Then use web_search to find additional employee data from those URLs and other sources. "
-                    user_message += "SPECIFIC INSTRUCTIONS: "
-                    user_message += "1. First, extract any employee names from the search results above "
-                    user_message += "2. Then use web_search to search each URL found for employee information "
-                    user_message += "3. Search for 'employees', 'team', 'staff', 'leadership' on each URL "
-                    user_message += "4. Continue searching until you find at least 20-30 employees "
-                    user_message += "5. If you find fewer than 15 employees, search more sources"
-                    
-                    messages = [
-                        {"role": "system", "content": system_message},
-                        {"role": "user", "content": user_message}
-                    ]
-                    
-                    logger.info(f"Sending request to OpenAI with function calling for {company_name}")
-                    
-                    # Simplified approach with 5-minute timeout
-                    import threading
-                    import queue
-                    
-                    result_queue = queue.Queue()
-                    def api_call():
-                        try:
-                            result = make_api_request_with_tools(messages)
-                            result_queue.put(('success', result))
-                        except Exception as e:
-                            result_queue.put(('error', str(e)))
-                    
-                    # Start API call in separate thread
-                    api_thread = threading.Thread(target=api_call)
-                    api_thread.daemon = True
-                    api_thread.start()
-                    
-                    # Wait for result with timeout (5 minutes = 300 seconds)
+            try:
+                # Extract domain from website if provided
+                domain = None
+                if company_website:
                     try:
-                        result_type, result_data = result_queue.get(timeout=300)
-                        if result_type == 'success':
-                            csv_content = result_data
-                        else:
-                            raise Exception(result_data)
-                    except queue.Empty:
-                        logger.error(f"OpenAI API call timed out for {company_name} after 5 minutes")
-                        result = {'company': company_name, 'error': 'OpenAI API call timed out after 5 minutes.'}
-                        yield f"data: {json.dumps(result)}\n\n"
-                        continue
+                        from urllib.parse import urlparse
+                        parsed_url = urlparse(company_website)
+                        domain = parsed_url.netloc
+                        if domain.startswith('www.'):
+                            domain = domain[4:]
                     except Exception as e:
-                        logger.error(f"Failed to get response from AI for {company_name}: {e}")
-                        result = {'company': company_name, 'error': f'Failed to get response from AI: {str(e)}'}
-                        yield f"data: {json.dumps(result)}\n\n"
-                        continue
-                    
-                    if not csv_content:
-                        logger.error(f"Failed to get response from AI after retries for {company_name}")
-                        result = {'company': company_name, 'error': 'Failed to get response from AI after retries.'}
-                        yield f"data: {json.dumps(result)}\n\n"
-                        continue
-                    
-                    logger.info(f"Received response from OpenAI, parsing CSV for {company_name}")
-                    print(f"RAW AI OUTPUT for {company_name}:", csv_content)  # Debug logging
-                    df = parse_csv_from_ai_output(csv_content)
-                    print(f"Parsed DataFrame shape for {company_name}: {df.shape}")  # Debug logging
-                    print(f"DataFrame columns for {company_name}: {list(df.columns)}")  # Debug logging
-                    
-                    result = {
-                        'company': company_name,
-                        'ai_response': csv_content,
-                        'parsed_successfully': not df.empty,
-                        'rows_found': len(df) if not df.empty else 0,
-                        'search_progress': search_progress,
-                        'total_urls_found': len(urls),
-                        'unique_urls': urls
-                    }
-                    
-                    # Debug: Check if result is properly formatted
-                    print(f"RESULT STRUCTURE for {company_name}:")
-                    print(f"  - Company: {result['company']}")
-                    print(f"  - Parsed successfully: {result['parsed_successfully']}")
-                    print(f"  - Rows found: {result['rows_found']}")
-                    print(f"  - Search progress length: {len(result['search_progress'])}")
-                    print(f"  - Total URLs found: {result['total_urls_found']}")
-                    
-                    if not df.empty:
-                        # Save parsed CSV
-                        filename = f"{company_name}_{uuid.uuid4().hex[:8]}.csv"
-                        filepath = os.path.join(GENERATED_DIR, filename)
+                        logger.error(f"Failed to parse website URL: {e}")
+                
+                # Comprehensive search queries - optimized for Vercel
+                queries = []
+                
+                if domain:
+                    # When website is provided, prioritize domain-specific searches
+                    queries = [
+                        f"executive team leadership site:{domain}",
+                        f"employees staff directory site:{domain}",
+                        f"team members about us site:{domain}",
+                        f"management team site:{domain}",
+                        f"company directory employees site:{domain}",
+                        f"about us team site:{domain}",
+                        f"leadership team site:{domain}",
+                        f"management site:{domain}",
+                        f"our people site:{domain}",
+                        f"team site:{domain}",
+                        f"leadership site:{domain}",
+                        f"executives site:{domain}",
+                        f"board of directors site:{domain}",
+                        f"organization chart site:{domain}",
+                        # Add company name only for domain-specific searches
+                        f"{company_name} site:{domain}",
+                        f"{company_name} executive site:{domain}",
+                        f"{company_name} team site:{domain}",
+                        f"{company_name} management site:{domain}"
+                    ]
+                else:
+                    # Fallback to company name searches when no website provided
+                    queries = [
+                        # English queries - comprehensive
+                        f"{company_name} executive team leadership",
+                        f"{company_name} employees staff directory",
+                        f"{company_name} team members organization",
+                        f"{company_name} management positions",
+                        f"{company_name} company directory personnel",
+                        f"{company_name} board of directors",
+                        f"{company_name} employee list",
+                        f"{company_name} organization chart",
+                        # Fallback to common domains
+                        f"{company_name} executive team leadership site:{company_name}.com",
+                        f"{company_name} employees staff directory site:{company_name}.com",
+                        f"{company_name} team members about us site:{company_name}.com",
+                        f"{company_name} management team site:{company_name}.com",
+                        f"{company_name} company directory employees site:{company_name}.com",
+                        # Additional company domains
+                        f"{company_name} executive team leadership site:{company_name}.co.jp",
+                        f"{company_name} employees staff directory site:{company_name}.co.jp",
+                        f"{company_name} team members about us site:{company_name}.co.jp",
+                        f"{company_name} management team site:{company_name}.co.jp",
+                        f"{company_name} company directory employees site:{company_name}.co.jp"
+                    ]
+                
+                all_urls = []
+                all_results = []
+                search_progress = []
+                
+                # Process search queries with timeout and rate limiting
+                for query_idx, query in enumerate(queries):
+                    try:
+                        logger.info(f"Searching query {query_idx+1}/{len(queries)} for {company_name}: {query}")
+                        
                         try:
-                            df.to_csv(filepath, index=False, encoding='utf-8-sig')
-                            result['download_url'] = f'/download/{filename}'
-                            logger.info(f"Successfully processed {company_name}: {len(df)} employees found")
-                            
-                        except Exception as e:
-                            logger.error(f"Failed to save parsed CSV {filename}: {e}")
+                            tavily_res = tavily.search(
+                                query=query,
+                                search_depth=config.tavily_search_depth,
+                                max_results=8  # Reduced for Vercel compatibility
+                            )
+                            urls = [item['url'] for item in tavily_res.get('results', [])]
+                            all_urls.extend(urls)
+                        except Exception as search_error:
+                            logger.error(f"Tavily search failed for query '{query}': {search_error}")
+                            urls = []
+                            tavily_res = {'results': []}
+                        
+                        # Log search progress
+                        search_progress.append({
+                            'query': query,
+                            'urls_found': len(urls),
+                            'urls': urls[:3]  # Show first 3 URLs
+                        })
+                        
+                        # Also collect the search result content for AI analysis
+                        for result in tavily_res.get('results', []):
+                            all_results.append({
+                                'title': result.get('title', ''),
+                                'content': result.get('content', ''),
+                                'url': result.get('url', '')
+                            })
+                        
+                        # Add small delay between searches to avoid rate limiting
+                        time.sleep(0.3)  # Reduced delay for faster processing
+                        
+                    except Exception as e:
+                        logger.error(f"Search query failed for '{query}': {e}")
+                        continue
+                
+                urls = list(dict.fromkeys(all_urls))[:15]  # Reduced from 20 to 15 URLs
+                logger.info(f"Found {len(urls)} unique URLs for {company_name}: {urls[:5]}...")  # Log first 5 URLs
+                if not urls:
+                    result = {
+                        'company': company_name, 
+                        'error': 'No relevant pages found.',
+                        'search_progress': search_progress
+                    }
+                    results.append(result)
+                    continue
+                
+                # Prepare search results content for AI
+                search_content = ""
+                for i, result in enumerate(all_results[:30]):  # Reduced to 30 results
+                    search_content += f"\nResult {i+1}:\nTitle: {result['title']}\nURL: {result['url']}\nContent: {result['content'][:800]}...\n"
+                
+                # Add website information to prompt if available
+                website_info = ""
+                if company_website:
+                    website_info = f"\nCompany Website: {company_website}\nDomain: {domain if domain else 'Not specified'}"
+                
+                # OpenAI prompt with function calling approach - optimized for Vercel
+                system_message = (
+                    "You are a highly skilled research assistant AI specializing in extracting employee data from web search results. "
+                    "YOUR PRIMARY GOAL: Find and extract QUALITY employee data with accurate names and titles. "
+                    "IMPORTANT: Focus on finding REAL employees with COMPLETE information. "
+                    "Search for ALL types of employees including: "
+                    "- Executives (CEO, CFO, CTO, Directors, Auditors, Executive Officers) "
+                    "- Senior Management (VPs, Senior Directors, Regional Heads) "
+                    "- Middle Management (Managers, Team Leads, Department Heads) "
+                    "- General Employees (Engineers, Analysts, Specialists, Coordinators, etc.) "
+                    "- Support Staff (HR, IT, Marketing, Sales, Operations, etc.) "
+                    "- Technical Staff (Developers, Designers, Researchers, etc.) "
+                    "- Administrative Staff (Assistants, Coordinators, etc.) "
+                    "- Board Members and Advisors "
+                    "Use the web_search tool to find comprehensive information about employees. "
+                    "After gathering data from multiple searches, format the complete, deduplicated list as a **strict CSV** table "
+                    "with the specified columns within a markdown code block (```csv ... ```), including the header row, with no extra text."
+                )
+                
+                user_message = STRICT_CSV_PROMPT.format(company=company_name)
+                if company_website:
+                    user_message += f"\n\nCompany Website: {company_website}"
+                    if domain:
+                        user_message += f"\nDomain: {domain}"
+                
+                # Add the search results to the user message so AI can analyze them
+                user_message += f"\n\nSEARCH RESULTS FOUND:\n{search_content}\n\n"
+                user_message += f"URLS FOUND: {urls}\n\n"
+                user_message += "IMPORTANT: Analyze the search results above and extract employee information from them. "
+                user_message += "Then perform additional web searches to find more employees. "
+                user_message += "Your goal is to find at least 15-25 employees from this company. "
+                user_message += "CRITICAL: Look at the URLs found and extract employee names, titles, and departments from the search result content. "
+                user_message += "If the search results contain employee information, extract it immediately. "
+                user_message += "Then use web_search to find additional employee data from those URLs and other sources."
+                
+                messages = [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ]
+                
+                logger.info(f"Sending request to OpenAI with function calling for {company_name}")
+                
+                # Simplified approach with 3-minute timeout for Vercel
+                import threading
+                import queue
+                
+                result_queue = queue.Queue()
+                def api_call():
+                    try:
+                        result = make_api_request_with_tools(messages)
+                        result_queue.put(('success', result))
+                    except Exception as e:
+                        result_queue.put(('error', str(e)))
+                
+                # Start API call in separate thread
+                api_thread = threading.Thread(target=api_call)
+                api_thread.daemon = True
+                api_thread.start()
+                
+                # Wait for result with timeout (3 minutes = 180 seconds for Vercel)
+                try:
+                    result_type, result_data = result_queue.get(timeout=180)
+                    if result_type == 'success':
+                        csv_content = result_data
                     else:
-                        logger.warning(f"No employee data parsed for {company_name}")
-                        # Save the raw AI response as a .csv file for download
-                        raw_filename = f"{company_name}_raw_{uuid.uuid4().hex[:8]}.csv"
-                        raw_filepath = os.path.join(GENERATED_DIR, raw_filename)
-                        try:
-                            with open(raw_filepath, 'w', encoding='utf-8-sig') as f:
-                                f.write(csv_content)
-                            result['raw_download_url'] = f'/download/{raw_filename}'
-                        except Exception as e:
-                            logger.error(f"Failed to save raw file {raw_filename}: {e}")
-                    
-                    yield f"data: {json.dumps(result)}\n\n"
-                    
+                        raise Exception(result_data)
+                except queue.Empty:
+                    logger.error(f"OpenAI API call timed out for {company_name} after 3 minutes")
+                    result = {'company': company_name, 'error': 'OpenAI API call timed out after 3 minutes.'}
+                    results.append(result)
+                    continue
                 except Exception as e:
-                    logger.error(f"Error processing {company_name}: {e}")
-                    result = {
-                        'company': company_name,
-                        'error': str(e),
-                        'ai_response': 'Error occurred before AI processing could complete.'
-                    }
-                    logger.info(f"Sending result for {company_name}: {len(result)} fields")
-                    print(f"SENDING RESULT: {json.dumps(result, ensure_ascii=False)}")
-                    yield f"data: {json.dumps(result)}\n\n"
-            
-            yield f"data: {json.dumps({'status': 'complete'})}\n\n"
+                    logger.error(f"Failed to get response from AI for {company_name}: {e}")
+                    result = {'company': company_name, 'error': f'Failed to get response from AI: {str(e)}'}
+                    results.append(result)
+                    continue
+                
+                if not csv_content:
+                    logger.error(f"Failed to get response from AI after retries for {company_name}")
+                    result = {'company': company_name, 'error': 'Failed to get response from AI after retries.'}
+                    results.append(result)
+                    continue
+                
+                logger.info(f"Received response from OpenAI, parsing CSV for {company_name}")
+                print(f"RAW AI OUTPUT for {company_name}:", csv_content)  # Debug logging
+                df = parse_csv_from_ai_output(csv_content)
+                print(f"Parsed DataFrame shape for {company_name}: {df.shape}")  # Debug logging
+                print(f"DataFrame columns for {company_name}: {list(df.columns)}")  # Debug logging
+                
+                result = {
+                    'company': company_name,
+                    'ai_response': csv_content,
+                    'parsed_successfully': not df.empty,
+                    'rows_found': len(df) if not df.empty else 0,
+                    'search_progress': search_progress,
+                    'total_urls_found': len(urls),
+                    'unique_urls': urls
+                }
+                
+                # Debug: Check if result is properly formatted
+                print(f"RESULT STRUCTURE for {company_name}:")
+                print(f"  - Company: {result['company']}")
+                print(f"  - Parsed successfully: {result['parsed_successfully']}")
+                print(f"  - Rows found: {result['rows_found']}")
+                print(f"  - Search progress length: {len(result['search_progress'])}")
+                print(f"  - Total URLs found: {result['total_urls_found']}")
+                
+                if not df.empty:
+                    # Save parsed CSV
+                    filename = f"{company_name}_{uuid.uuid4().hex[:8]}.csv"
+                    filepath = os.path.join(GENERATED_DIR, filename)
+                    try:
+                        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+                        result['download_url'] = f'/download/{filename}'
+                        logger.info(f"Successfully processed {company_name}: {len(df)} employees found")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to save parsed CSV {filename}: {e}")
+                else:
+                    logger.warning(f"No employee data parsed for {company_name}")
+                    # Save the raw AI response as a .csv file for download
+                    raw_filename = f"{company_name}_raw_{uuid.uuid4().hex[:8]}.csv"
+                    raw_filepath = os.path.join(GENERATED_DIR, raw_filename)
+                    try:
+                        with open(raw_filepath, 'w', encoding='utf-8-sig') as f:
+                            f.write(csv_content)
+                        result['raw_download_url'] = f'/download/{raw_filename}'
+                    except Exception as e:
+                        logger.error(f"Failed to save raw file {raw_filename}: {e}")
+                
+                results.append(result)
+                
+            except Exception as e:
+                logger.error(f"Error processing {company_name}: {e}")
+                result = {
+                    'company': company_name,
+                    'error': str(e),
+                    'ai_response': 'Error occurred before AI processing could complete.'
+                }
+                logger.info(f"Sending result for {company_name}: {len(result)} fields")
+                print(f"SENDING RESULT: {json.dumps(result, ensure_ascii=False)}")
+                results.append(result)
         
-        return Response(generate(), mimetype='text/event-stream', headers={
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'X-Accel-Buffering': 'no',
-            'Transfer-Encoding': 'chunked',
-            'Content-Type': 'text/event-stream; charset=utf-8'
+        # Return all results in a single response
+        return jsonify({
+            'status': 'complete',
+            'total_companies': total_companies,
+            'processed_companies': len(results),
+            'results': results
         })
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1233,6 +1196,144 @@ def upload_csv():
 @app.route('/download/<filename>')
 def download(filename):
     return send_from_directory(GENERATED_DIR, filename, as_attachment=True)
+
+@app.route('/logs')
+def show_logs():
+    """Show recent application logs for deployment monitoring."""
+    try:
+        # Get log file path based on environment
+        if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+            log_file = '/tmp/lead_generation.log'
+        else:
+            log_file = config.log_filename
+        
+        logs = []
+        if os.path.exists(log_file):
+            try:
+                # Read last 100 lines of the log file
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    # Get last 100 lines, or all if less than 100
+                    recent_lines = lines[-100:] if len(lines) > 100 else lines
+                    logs = [line.strip() for line in recent_lines if line.strip()]
+            except Exception as e:
+                logs = [f"Error reading log file: {str(e)}"]
+        else:
+            logs = ["No log file found"]
+        
+        # Get system information
+        import psutil
+        import platform
+        
+        system_info = {
+            'platform': platform.platform(),
+            'python_version': platform.python_version(),
+            'cpu_count': psutil.cpu_count(),
+            'memory_total': f"{psutil.virtual_memory().total / (1024**3):.2f} GB",
+            'memory_available': f"{psutil.virtual_memory().available / (1024**3):.2f} GB",
+            'memory_percent': f"{psutil.virtual_memory().percent:.1f}%",
+            'disk_usage': f"{psutil.disk_usage('/').percent:.1f}%"
+        }
+        
+        # Get environment information
+        env_info = {
+            'vercel': bool(os.environ.get('VERCEL')),
+            'railway': bool(os.environ.get('RAILWAY')),
+            'port': os.environ.get('PORT', '5000'),
+            'generated_dir': GENERATED_DIR,
+            'openai_key_set': bool(OPENAI_API_KEY),
+            'tavily_key_set': bool(TAVILY_API_KEY),
+            'tavily_client_initialized': tavily is not None
+        }
+        
+        # Get recent API usage stats (if available)
+        api_stats = {
+            'last_request_time': None,
+            'total_requests': 0,
+            'successful_requests': 0,
+            'failed_requests': 0
+        }
+        
+        # Try to get some basic stats from logs
+        for log in logs:
+            if 'Starting employee research for company:' in log:
+                api_stats['total_requests'] += 1
+            if 'Successfully processed' in log:
+                api_stats['successful_requests'] += 1
+            if 'Error processing' in log or 'Failed to get response' in log:
+                api_stats['failed_requests'] += 1
+        
+        return jsonify({
+            'status': 'success',
+            'timestamp': time.time(),
+            'log_file': log_file,
+            'log_entries': len(logs),
+            'recent_logs': logs,
+            'system_info': system_info,
+            'environment_info': env_info,
+            'api_stats': api_stats
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }), 500
+
+@app.route('/logs/raw')
+def show_raw_logs():
+    """Show raw log content for debugging."""
+    try:
+        # Get log file path based on environment
+        if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+            log_file = '/tmp/lead_generation.log'
+        else:
+            log_file = config.log_filename
+        
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return Response(content, mimetype='text/plain')
+        else:
+            return Response("No log file found", mimetype='text/plain')
+            
+    except Exception as e:
+        return Response(f"Error reading logs: {str(e)}", mimetype='text/plain')
+
+@app.route('/logs/clear')
+def clear_logs():
+    """Clear log file (for debugging purposes)."""
+    try:
+        # Get log file path based on environment
+        if os.environ.get('VERCEL') or os.environ.get('RAILWAY'):
+            log_file = '/tmp/lead_generation.log'
+        else:
+            log_file = config.log_filename
+        
+        if os.path.exists(log_file):
+            # Clear the log file
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write('')
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Log file cleared successfully',
+                'timestamp': time.time()
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'No log file found to clear',
+                'timestamp': time.time()
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }), 500
 
 
 # For Railway deployment
