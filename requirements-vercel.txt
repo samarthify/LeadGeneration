@@ -1,0 +1,13 @@
+# Vercel-optimized requirements.txt
+# Uses compatible versions that work well on Vercel's build environment
+
+Flask==3.0.0
+openai==1.28.0
+tavily-python==0.2.8
+requests==2.31.0
+python-dotenv==1.0.0
+pandas==2.1.4
+httpx==0.27.2
+
+# Additional Vercel-specific optimizations
+gunicorn==21.2.0

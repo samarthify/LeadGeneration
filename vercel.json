@@ -6,7 +6,8 @@
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "50mb",
-        "maxDuration": 300
+        "maxDuration": 300,
+        "requirements": "requirements-vercel.txt"
       }
     }
   ],
@@ -16,4 +17,4 @@
       "dest": "app.py"
     }
   ]
-} 
+}

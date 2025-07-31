@@ -1004,6 +1004,11 @@ def upload_csv():
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file.'}), 400
+    
+    # Get batch parameters
+    batch_size = int(request.form.get('batch_size', 4))  # Default to 4 companies per batch
+    start_index = int(request.form.get('start_index', 0))  # Start from beginning by default
+    
     try:
         # Read CSV file into DataFrame
         stream = io.StringIO(file.stream.read().decode('utf-8'))
@@ -1020,18 +1025,23 @@ def upload_csv():
         
         if not companies_data:
             return jsonify({'error': 'No company names found in the CSV.'}), 400
-        if len(companies_data) > 50:  # Reduced limit for Vercel compatibility
-            return jsonify({'error': 'CSV contains more than 50 companies. Please split into smaller batches.'}), 400
         
-        # Process companies sequentially without streaming
-        results = []
         total_companies = len(companies_data)
         
-        for i, company_data in enumerate(companies_data):
+        # Calculate batch range
+        end_index = min(start_index + batch_size, total_companies)
+        current_batch = companies_data[start_index:end_index]
+        
+        logger.info(f"Processing batch: companies {start_index+1}-{end_index} of {total_companies} (batch size: {batch_size})")
+        
+        # Process companies in current batch
+        results = []
+        
+        for i, company_data in enumerate(current_batch):
             company_name = company_data['name']
             company_website = company_data['website']
             
-            log_processing_start(company_name, is_batch=True, batch_index=i, total_companies=total_companies)
+            log_processing_start(company_name, is_batch=True, batch_index=start_index+i, total_companies=total_companies)
             
             try:
                 # Extract domain from website if provided
@@ -1120,16 +1130,23 @@ def upload_csv():
                 print(f"SENDING RESULT: {json.dumps(result, ensure_ascii=False)}")
                 results.append(result)
         
-        # Return all results in a single response
-        return jsonify({
+        # Return batch results
+        response_data = {
             'status': 'complete',
             'total_companies': total_companies,
             'processed_companies': len(results),
+            'current_batch_start': start_index + 1,
+            'current_batch_end': end_index,
             'results': results
-        })
+        }
+        
+        return jsonify(response_data)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+
 
 
 @app.route('/download/<filename>')
