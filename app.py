@@ -1028,11 +1028,10 @@ def upload_csv():
         
         total_companies = len(companies_data)
         
-        # Calculate batch range
-        end_index = min(start_index + batch_size, total_companies)
-        current_batch = companies_data[start_index:end_index]
+        # Since we're receiving only the current batch, process all companies in the file
+        current_batch = companies_data  # Process all companies in the received file
         
-        logger.info(f"Processing batch: companies {start_index+1}-{end_index} of {total_companies} (batch size: {batch_size})")
+        logger.info(f"Processing batch with {len(current_batch)} companies (batch size: {batch_size})")
         
         # Process companies in current batch
         results = []
@@ -1135,8 +1134,7 @@ def upload_csv():
             'status': 'complete',
             'total_companies': total_companies,
             'processed_companies': len(results),
-            'current_batch_start': start_index + 1,
-            'current_batch_end': end_index,
+            'batch_size': len(current_batch),
             'results': results
         }
         

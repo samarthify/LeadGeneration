@@ -769,13 +769,15 @@
                 for (let startIndex = 0; startIndex < totalCompanies; startIndex += batchSize) {
                     const endIndex = Math.min(startIndex + batchSize, totalCompanies);
                     const currentBatch = companiesData.slice(startIndex, endIndex);
+                    const batchNumber = Math.floor(startIndex / batchSize) + 1;
+                    const totalBatches = Math.ceil(totalCompanies / batchSize);
                     
-                    console.log(`Processing batch ${Math.floor(startIndex / batchSize) + 1}: companies ${startIndex + 1}-${endIndex}`);
+                    console.log(`Processing batch ${batchNumber}/${totalBatches}: companies ${startIndex + 1}-${endIndex} of ${totalCompanies}`);
                     
                     // Update progress message
                     const progressInfo = document.getElementById('progress-info');
                     if (progressInfo) {
-                        progressInfo.innerHTML = `Processing batch ${Math.floor(startIndex / batchSize) + 1}/${Math.ceil(totalCompanies / batchSize)}: Companies ${startIndex + 1}-${endIndex} of ${totalCompanies}`;
+                        progressInfo.innerHTML = `Processing batch ${batchNumber}/${totalBatches}: Companies ${startIndex + 1}-${endIndex} of ${totalCompanies}`;
                     }
                     
                     // Process current batch
@@ -860,7 +862,8 @@
             const csvFile = new File([csvBlob], 'batch.csv', { type: 'text/csv' });
             
             formData.append('file', csvFile);
-            formData.append('start_index', startIndex.toString());
+            // Since we're sending only the current batch, start_index should always be 0
+            formData.append('start_index', '0');
             formData.append('batch_size', batchSize.toString());
             
             const response = await fetch('/upload', {
